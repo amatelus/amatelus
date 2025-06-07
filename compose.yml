@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:15.5
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: app
+      TZ: Asia/Tokyo
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+volumes:
+  postgres:
+    driver: local

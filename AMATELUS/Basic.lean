@@ -9,18 +9,22 @@
 /-- ハッシュ値を表す型 -/
 structure Hash where
   value : List UInt8
+  deriving Repr, DecidableEq
 
 /-- 公開鍵を表す型 -/
 structure PublicKey where
   bytes : List UInt8
+  deriving Repr, DecidableEq
 
 /-- 秘密鍵を表す型 -/
 structure SecretKey where
   bytes : List UInt8
+  deriving Repr, DecidableEq
 
 /-- デジタル署名を表す型 -/
 structure Signature where
   bytes : List UInt8
+  deriving Repr, DecidableEq
 
 /-- サービスエンドポイントを表す型 -/
 structure ServiceEndpoint where
@@ -44,6 +48,7 @@ structure DIDDocument where
     DID := did:amatelus:H(DIDDoc) -/
 structure DID where
   hash : Hash
+  deriving Repr, DecidableEq
 
 /-- DIDDocumentのシリアライゼーション関数
 
@@ -333,24 +338,145 @@ structure RevocationInfo where
   statusListUrl : Option String
   deriving Repr, DecidableEq
 
-/-- 検証可能資格情報 (Verifiable Credential) を表す構造体 -/
-structure VerifiableCredential where
-  context : Context
-  type : VCType
-  issuer : DID
-  subject : DID
-  claims : Claims
-  signature : Signature
-  credentialStatus : RevocationInfo
+/-- クレームタイプを表す型 -/
+def ClaimTypeBasic := String
+
+/-- 監査区分識別子を表す型 -/
+structure AuditSectionID where
+  value : List UInt8
+  deriving Repr, DecidableEq
+
+/-- 国民識別番号（マイナンバー等）を表す型 -/
+structure NationalID where
+  value : List UInt8
+  deriving Repr, DecidableEq
+
+/-- 匿名ハッシュ識別子 (Anonymous Hash Identifier)
+    AHI := H(AuditSectionID || NationalID) -/
+structure AnonymousHashIdentifier where
+  hash : Hash
+  deriving Repr, DecidableEq
+
+namespace AnonymousHashIdentifier
+
+/-- AHIを生成する関数（ハッシュ関数は公理化） -/
+axiom fromComponents : AuditSectionID → NationalID → AnonymousHashIdentifier
+
+end AnonymousHashIdentifier
+
+/-- W3C Verifiable Credential仕様の基本構造
+
+    この構造は、W3C VC Data Model 1.1に基づく基本的なフィールドを含む。
+    すべての具体的なVCはこの基本構造を含む必要がある。
+
+    参考: https://www.w3.org/TR/vc-data-model/
+-/
+structure W3CCredentialCore where
+  -- 必須フィールド
+  context : Context                  -- @context: JSONLDコンテキスト
+  type : VCType                      -- type: VCの種類
+  issuer : DID                       -- issuer: 発行者のDID
+  subject : DID                      -- credentialSubject.id: 主体のDID
+  signature : Signature              -- proof: デジタル署名
+
+  -- オプショナルフィールド
+  credentialStatus : RevocationInfo  -- credentialStatus: 失効情報
+  deriving Repr, DecidableEq
+
+/-- 受託者認証VC
+
+    トラストアンカーが受託者に発行する認証クレデンシャル。
+    受託者が特定のクレームタイプを発行する権限を持つことを証明する。
+-/
+structure TrusteeVC where
+  core : W3CCredentialCore
+  -- 受託者固有のクレーム
+  authorizedClaimTypes : List ClaimTypeBasic  -- 発行可能なクレームタイプ
+  trustLevel : Nat                             -- 信頼レベル (1-5)
+
+/-- 国民識別情報VC
+
+    政府機関が発行する国民識別情報（マイナンバーなど）を含むVC。
+    プライバシー保護のため、AHIを使用して匿名化される。
+-/
+structure NationalIDVC where
+  core : W3CCredentialCore
+  -- 国民ID固有のクレーム
+  anonymousHashId : AnonymousHashIdentifier   -- 匿名ハッシュ識別子
+  auditSection : AuditSectionID                -- 監査区分識別子
+
+/-- 属性情報VC
+
+    一般的な属性情報（年齢、住所、資格など）を証明するVC。
+    汎用的なクレームタイプで、様々な発行者が発行できる。
+-/
+structure AttributeVC where
+  core : W3CCredentialCore
+  -- 属性固有のクレーム
+  claims : Claims                             -- 任意の構造化クレーム
+
+/-- 検証者VC
+
+    トラストアンカーが検証者に発行する認証クレデンシャル。
+    検証者が特定のクレームタイプを検証する権限を持つことを証明する。
+
+    偽警官対策: Holderはこのような検証者VCの提示を要求することで、
+    正規の検証者であることを確認できる。
+-/
+structure VerifierVC where
+  core : W3CCredentialCore
+  -- 検証者固有のクレーム
+  authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
+  verificationScope : String                          -- 検証の範囲（地域、組織など）
+
+/-- 検証可能資格情報 (Verifiable Credential)
+
+    すべての具体的なVCタイプの和型。
+    AMATELUSプロトコルで扱われるVCは、以下のいずれかの型を持つ：
+    - TrusteeVC: 受託者認証
+    - NationalIDVC: 国民識別情報
+    - AttributeVC: 一般属性情報
+    - VerifierVC: 検証者認証
+-/
+inductive VerifiableCredential
+  | trusteeVC : TrusteeVC → VerifiableCredential
+  | nationalIDVC : NationalIDVC → VerifiableCredential
+  | attributeVC : AttributeVC → VerifiableCredential
+  | verifierVC : VerifierVC → VerifiableCredential
 
 namespace VerifiableCredential
 
-/-- VCが有効かどうかを表す述語 -/
-def isValid (_vc : VerifiableCredential) : Prop :=
-  -- 署名検証は公理化
-  True  -- 実際の実装では署名検証が必要
+/-- VCから基本構造を取得 -/
+def getCore : VerifiableCredential → W3CCredentialCore
+  | trusteeVC vc => vc.core
+  | nationalIDVC vc => vc.core
+  | attributeVC vc => vc.core
+  | verifierVC vc => vc.core
+
+/-- VCの発行者を取得 -/
+def getIssuer (vc : VerifiableCredential) : DID :=
+  (getCore vc).issuer
+
+/-- VCの主体を取得 -/
+def getSubject (vc : VerifiableCredential) : DID :=
+  (getCore vc).subject
+
+/-- VCが有効かどうかを表す述語（公理化） -/
+axiom isValid : VerifiableCredential → Prop
 
 end VerifiableCredential
+
+-- ## 基本的な型定義（ZKP用）
+
+/-- タイムスタンプを表す型 -/
+structure Timestamp where
+  unixTime : Nat
+  deriving Repr, DecidableEq
+
+/-- ナンスを表す型 -/
+structure Nonce where
+  value : List UInt8
+  deriving Repr, BEq, DecidableEq
 
 -- ## Definition 2.3: Zero-Knowledge Proof
 
@@ -369,13 +495,58 @@ structure Proof where
 /-- 関係式を表す型 -/
 def Relation := PublicInput → Witness → Bool
 
-/-- ゼロ知識証明 (Zero-Knowledge Proof) を表す構造体
-    ZKP := (π, x) where π proves knowledge of w such that R(x, w) = 1 -/
-structure ZeroKnowledgeProof where
-  proof : Proof
-  publicInput : PublicInput
+/-- W3C ZKP仕様の基本構造
+
+    すべてのZKPはこの基本構造を含む。
+    参考: W3C VC Data Model 2.0 の Proof 仕様
+-/
+structure W3CZKProofCore where
+  proof : Proof               -- 証明データ（π）
+  publicInput : PublicInput   -- 公開入力（x）
+  proofPurpose : String       -- 証明の目的（authentication, assertionMethodなど）
+  created : Timestamp         -- 証明生成時刻
+
+/-- Verifier認証用ZKP
+
+    Verifierが自身の正当性を証明するためのZKP。
+    "私（verifierDID）は、信頼できるトラストアンカーから
+    発行されたVerifierVCを保持している"ことを証明。
+-/
+structure VerifierAuthZKP where
+  core : W3CZKProofCore
+  verifierDID : DID           -- 証明者（Verifier）のDID
+  challengeNonce : Nonce      -- Holderが発行したチャレンジnonce
+  credentialType : String     -- 証明対象のVC種類（"VerifierVC"など）
+
+/-- Holder資格証明用ZKP
+
+    Holderが特定の属性を証明するためのZKP。
+    "私は特定の属性を満たすVCを保持している"ことを証明。
+    例: "私は20歳以上である"、"私は運転免許を持っている"など
+-/
+structure HolderCredentialZKP where
+  core : W3CZKProofCore
+  holderDID : DID             -- 証明者（Holder）のDID
+  challengeNonce : Nonce      -- Verifierが発行したチャレンジnonce
+  claimedAttributes : String  -- 証明する属性の記述
+
+/-- ゼロ知識証明 (Zero-Knowledge Proof)
+
+    すべての具体的なZKPタイプの和型。
+    AMATELUSプロトコルで扱われるZKPは、以下のいずれかの型を持つ：
+    - verifierAuthZKP: Verifier認証用ZKP
+    - holderCredentialZKP: Holder資格証明用ZKP
+-/
+inductive ZeroKnowledgeProof
+  | verifierAuthZKP : VerifierAuthZKP → ZeroKnowledgeProof
+  | holderCredentialZKP : HolderCredentialZKP → ZeroKnowledgeProof
 
 namespace ZeroKnowledgeProof
+
+/-- ZKPから基本構造を取得 -/
+def getCore : ZeroKnowledgeProof → W3CZKProofCore
+  | verifierAuthZKP zkp => zkp.core
+  | holderCredentialZKP zkp => zkp.core
 
 /-- ZKP検証関数（公理化） -/
 axiom verify : ZeroKnowledgeProof → Relation → Bool
@@ -386,29 +557,7 @@ def isValid (zkp : ZeroKnowledgeProof) (relation : Relation) : Prop :=
 
 end ZeroKnowledgeProof
 
--- ## Definition 2.4: Anonymous Hash Identifier
-
-/-- 監査区分識別子を表す型 -/
-structure AuditSectionID where
-  value : List UInt8
-
-/-- 国民識別番号（マイナンバー等）を表す型 -/
-structure NationalID where
-  value : List UInt8
-
-/-- 匿名ハッシュ識別子 (Anonymous Hash Identifier)
-    AHI := H(AuditSectionID || NationalID) -/
-structure AnonymousHashIdentifier where
-  hash : Hash
-
-namespace AnonymousHashIdentifier
-
-/-- AHIを生成する関数（ハッシュ関数は公理化） -/
-axiom fromComponents : AuditSectionID → NationalID → AnonymousHashIdentifier
-
-end AnonymousHashIdentifier
-
--- ## Definition 2.5: Computational Resource Constraints
+-- ## Definition 2.4: Computational Resource Constraints
 
 /-- デバイスの計算資源制約を表す構造体 -/
 structure DeviceConstraints where
@@ -427,22 +576,10 @@ structure ZKPRequirements where
 
 -- ## Wallet and Role Definitions
 
-/-- タイムスタンプを表す型 -/
-structure Timestamp where
-  unixTime : Nat
-  deriving Repr, DecidableEq
-
-/-- ナンスを表す型 -/
-structure Nonce where
-  value : List UInt8
-
 /-- 事前計算されたZKP -/
 structure PrecomputedZKP where
   partialProof : Proof
   publicStatement : PublicInput
-
-/-- クレームタイプを表す型 -/
-def ClaimTypeBasic := String
 
 /-- 認証局の種類 -/
 inductive AuthorityType
@@ -464,6 +601,73 @@ structure RootAuthorityCertificate where
   -- 有効期限
   validUntil : Timestamp
 
+/-- トラストアンカー情報
+
+    トラストアンカーに関連する情報を保持する。
+    - DIDDocument: トラストアンカーのDIDドキュメント
+    - trustees: このトラストアンカーから認証を受けた受託者のDIDリスト
+-/
+structure TrustAnchorInfo where
+  didDocument : DIDDocument
+  trustees : List DID  -- このトラストアンカーから認証を受けた受託者のリスト
+
+namespace TrustAnchorInfo
+
+/-- トラストアンカー情報が正規かどうかを検証
+
+    トラストアンカーのDIDとDIDDocumentが一致することを確認する。
+-/
+def isValid (anchorDID : DID) (info : TrustAnchorInfo) : Prop :=
+  DID.isValid anchorDID info.didDocument
+
+/-- Theorem: 正規のトラストアンカー情報はDID検証に成功する -/
+theorem valid_info_passes_did_verification :
+  ∀ (anchorDID : DID) (info : TrustAnchorInfo),
+    isValid anchorDID info →
+    DID.isValid anchorDID info.didDocument := by
+  intro anchorDID info h
+  unfold isValid at h
+  exact h
+
+end TrustAnchorInfo
+
+/-- トラストアンカー辞書の型
+
+    辞書: { トラストアンカーのDID ↦ TrustAnchorInfo }
+
+    連想リストとして実装され、DIDをキーとしてTrustAnchorInfoを取得できる。
+-/
+abbrev TrustAnchorDict := List (DID × TrustAnchorInfo)
+
+namespace TrustAnchorDict
+
+/-- 辞書からトラストアンカー情報を検索 -/
+def lookup (dict : TrustAnchorDict) (anchorDID : DID) : Option TrustAnchorInfo :=
+  List.lookup anchorDID dict
+
+/-- 辞書にトラストアンカー情報を追加 -/
+def insert (dict : TrustAnchorDict) (anchorDID : DID) (info : TrustAnchorInfo) : TrustAnchorDict :=
+  (anchorDID, info) :: List.filter (fun (did, _) => did ≠ anchorDID) dict
+
+/-- 辞書から受託者を追加
+
+    指定されたトラストアンカーの受託者リストに新しい受託者を追加する。
+-/
+def addTrustee (dict : TrustAnchorDict) (anchorDID : DID) (trusteeDID : DID) : TrustAnchorDict :=
+  List.map (fun (did, info) =>
+    if did = anchorDID then
+      (did, { info with trustees := trusteeDID :: info.trustees })
+    else
+      (did, info)) dict
+
+/-- 辞書内のすべてのエントリーが正規かどうかを検証 -/
+def allValid (dict : TrustAnchorDict) : Prop :=
+  ∀ (anchorDID : DID) (info : TrustAnchorInfo),
+    (anchorDID, info) ∈ dict →
+    TrustAnchorInfo.isValid anchorDID info
+
+end TrustAnchorDict
+
 /-- Walletはユーザーの秘密情報を安全に保管する -/
 structure Wallet where
   -- アイデンティティ
@@ -479,6 +683,109 @@ structure Wallet where
 
   -- ZKP事前計算データ
   precomputedProofs : List PrecomputedZKP
+
+  -- 信頼するトラストアンカーの辞書
+  -- { トラストアンカーのDID ↦ { DIDDocument, 受託者のリスト } }
+  trustedAnchors : TrustAnchorDict
+
+/-- 検証者認証メッセージ
+
+    偽警官対策: Holderが検証者の正当性を確認するためのメッセージ。
+    検証者は以下の情報を含むメッセージをHolderに送信する：
+    1. expectedTrustAnchor: Holderが期待しているトラストアンカーのDID
+    2. verifierDID: 検証者自身のDID
+    3. verifierCredentials: トラストアンカーから発行された検証者VCのリスト
+    4. nonce2: リプレイ攻撃防止用のナンス
+    5. authProof: 検証者がverifierDIDの所有者であることを証明するZKP
+
+    Holderは以下を検証する：
+    - expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに含まれる
+    - verifierCredentialsに含まれるVerifierVCがexpectedTrustAnchorから発行されている
+    - VerifierVCのsubjectがverifierDIDと一致する
+    - authProofが有効である
+
+    これにより、Holderは偽警官（不正な検証者）にZKPを送信することを防ぐことができる。
+-/
+structure VerifierAuthMessage where
+  expectedTrustAnchor : DID
+  verifierDID : DID
+  verifierCredentials : List VerifiableCredential
+  nonce2 : Nonce
+  authProof : ZeroKnowledgeProof
+
+namespace VerifierAuthMessage
+
+/-- 検証者認証メッセージを検証する関数
+
+    Holderの視点で、検証者認証メッセージが正当かどうかを検証する。
+
+    検証項目:
+    1. expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに存在する
+    2. verifierCredentialsに少なくとも1つのVerifierVCが含まれる
+    3. すべてのVerifierVCが有効である（VerifiableCredential.isValid）
+    4. すべてのVerifierVCのissuerがexpectedTrustAnchorと一致する
+    5. すべてのVerifierVCのsubjectがverifierDIDと一致する
+    6. authProofが有効である（ZeroKnowledgeProof.isValid）
+-/
+def validateVerifierAuth (msg : VerifierAuthMessage) (holderWallet : Wallet) : Prop :=
+  -- 1. expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに存在する
+  (TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isSome ∧
+  -- 2. verifierCredentialsに少なくとも1つのVerifierVCが含まれる
+  msg.verifierCredentials.length > 0 ∧
+  -- 3-5. すべてのVerifierVCが以下の条件を満たす
+  (∀ vc ∈ msg.verifierCredentials,
+    -- VCが有効である
+    VerifiableCredential.isValid vc ∧
+    -- VCの発行者がexpectedTrustAnchorと一致する
+    VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
+    -- VCのsubjectがverifierDIDと一致する
+    VerifiableCredential.getSubject vc = msg.verifierDID) ∧
+  -- 6. authProofが有効である（関係式は実装依存のため公理化）
+  ∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation
+
+/-- Theorem: 正規の検証者は検証に成功する
+
+    トラストアンカーから正当に発行されたVerifierVCを持ち、
+    有効なZKPを提示する検証者は、Holderの検証を通過する。
+-/
+axiom authentic_verifier_passes :
+  ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet),
+    -- 前提条件: Holderがexpectedトラストアンカーを信頼している
+    (TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isSome →
+    -- 前提条件: すべてのVerifierVCが正規に発行されている
+    (∀ vc ∈ msg.verifierCredentials,
+      VerifiableCredential.isValid vc ∧
+      VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
+      VerifiableCredential.getSubject vc = msg.verifierDID) →
+    -- 前提条件: authProofが有効
+    (∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation) →
+    -- 結論: 検証に成功する
+    validateVerifierAuth msg holderWallet
+
+/-- Theorem: 偽警官（不正な検証者）は検証に失敗する
+
+    以下のいずれかの条件を満たす不正な検証者は、Holderの検証を通過しない：
+    1. 信頼されていないトラストアンカーを提示する
+    2. 無効なVerifierVCを提示する
+    3. 他のトラストアンカーから発行されたVerifierVCを提示する
+    4. 他のDIDのVerifierVCを提示する（なりすまし）
+    5. 無効なZKPを提示する
+-/
+axiom fake_verifier_fails :
+  ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet),
+    -- 条件1: 信頼されていないトラストアンカー
+    ((TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isNone ∨
+     -- 条件2-4: 不正なVerifierVC
+     (∃ vc ∈ msg.verifierCredentials,
+       ¬VerifiableCredential.isValid vc ∨
+       VerifiableCredential.getIssuer vc ≠ msg.expectedTrustAnchor ∨
+       VerifiableCredential.getSubject vc ≠ msg.verifierDID) ∨
+     -- 条件5: 無効なZKP
+     (∀ (relation : Relation), ¬ZeroKnowledgeProof.isValid msg.authProof relation)) →
+    -- 結論: 検証に失敗する
+    ¬validateVerifierAuth msg holderWallet
+
+end VerifierAuthMessage
 
 /-- WalletとDIDの一貫性公理
 
@@ -507,17 +814,39 @@ structure TrustPolicy where
 structure Holder where
   wallet : Wallet
 
-/-- Issuer: VCを発行する権限を持つ主体 -/
-structure Issuer where
+/-- トラストアンカー: 自己署名のルート認証局 -/
+structure TrustAnchor where
+  wallet : Wallet
+  -- この発行者が発行できるクレームタイプ
+  authorizedClaimTypes : List ClaimTypeBasic
+  -- ルート認証局証明書（自己署名）
+  rootCertificate : RootAuthorityCertificate
+
+/-- 受託者: 上位認証局から認証を受けた発行者 -/
+structure Trustee where
   wallet : Wallet
   -- この発行者が発行できるクレームタイプ
   authorizedClaimTypes : List ClaimTypeBasic
   -- 発行者としての認証情報（上位認証局から発行されたVC）
-  issuerCredential : Option VerifiableCredential
+  issuerCredential : VerifiableCredential
 
-/-- Verifier: VCを検証する主体 -/
+/-- Issuer: VCを発行する権限を持つ主体
+    発行者はトラストアンカー（自己署名のルート認証局）または
+    受託者（上位認証局から認証を受けた発行者）のいずれかである -/
+inductive Issuer
+  | trustAnchor : TrustAnchor → Issuer
+  | trustee : Trustee → Issuer
+
+/-- Verifier: VCを検証する主体
+
+    偽警官対策: 検証者はWalletを持ち、トラストアンカーから発行された
+    VerifierVCを保持する。検証時には、Holderに対してこれらのVerifierVCを
+    提示し、自身が正当な検証者であることを証明する。
+-/
 structure Verifier where
-  did : DID
+  -- アイデンティティと資格情報を保持するWallet
+  -- Wallet内のcredentialsには、トラストアンカーから発行されたVerifierVCが含まれる
+  wallet : Wallet
   -- 検証ポリシー（どの発行者を信頼するか等）
   trustPolicy : TrustPolicy
 

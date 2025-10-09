@@ -159,7 +159,7 @@ theorem zero_knowledge_property :
     R x w = true →
     ∃ (simulator : PublicInput → Relation → Proof),
       ∀ (A : PPTAlgorithm),
-        ComputationallyIndistinguishable zkp.proof (simulator x R) A := by
+        ComputationallyIndistinguishable (ZeroKnowledgeProof.getCore zkp).proof (simulator x R) A := by
   intro _zkp x w R _h_verify h_relation
   -- ZKPSystemのzeroKnowledgeプロパティから導かれる
   obtain ⟨simulator, h_sim⟩ := amatZKP.zeroKnowledge

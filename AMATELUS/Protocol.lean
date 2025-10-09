@@ -9,6 +9,7 @@ import AMATELUS.Basic
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.TrustChain
+import AMATELUS.ReplayResistance
 import AMATELUS.Privacy
 import AMATELUS.Audit
 
@@ -246,14 +247,6 @@ theorem sybil_attack_resistance :
   -- 複数DIDの保有は意図的設計であり、脅威ではない
   True := by
   intro _
-  trivial
-
-/-- リプレイ攻撃への耐性 -/
-theorem replay_attack_resistance :
-  ∀ (zkp : ZeroKnowledgeProof),
-    -- ナンス機構によりリプレイ攻撃を防御
-    True := by
-  intro _zkp
   trivial
 
 /-- 量子攻撃への対応 -/

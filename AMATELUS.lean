@@ -19,6 +19,12 @@ import AMATELUS.TrustChain
 -- Wallet/Holder/Issuer/Verifier操作定義
 import AMATELUS.Operations
 
+-- リプレイ攻撃耐性の証明
+import AMATELUS.ReplayResistance
+
+-- 相互認証プロトコル（Verifier認証）
+import AMATELUS.MutualAuthentication
+
 -- プライバシー保護機構の証明 (Theorem 5.1, 5.3)
 import AMATELUS.Privacy
 

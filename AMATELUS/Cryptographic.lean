@@ -60,10 +60,10 @@ theorem did_verification_completeness :
 /-- Theorem 3.3: VC署名検証の完全性
     正当に発行されたVCの署名検証は常に成功する -/
 theorem vc_signature_completeness :
-  ∀ (vc : VerifiableCredential) (sk : SecretKey) (pk : PublicKey),
-    let kp := KeyPair.mk sk pk
+  ∀ (_vc : VerifiableCredential) (sk : SecretKey) (pk : PublicKey),
+    let _kp := KeyPair.mk sk pk
     let σ := amatSignature.sign sk []  -- VCのバイト表現
-    let _vc' := { vc with signature := σ }
+    -- Note: VerifiableCredentialはinductive typeなので、with構文は使用できない
     amatSignature.verify pk [] σ = true := by
   intro _vc sk pk
   -- SignatureScheme の completeness プロパティから直接導かれる
@@ -75,7 +75,7 @@ theorem vc_signature_completeness :
 /-- Theorem 3.4: VC署名検証の健全性
     偽造されたVCの署名検証は negligible な確率でのみ成功する -/
 theorem vc_signature_soundness :
-  ∀ (A : PPTAlgorithm) (kp : KeyPair),
+  ∀ (_A : PPTAlgorithm) (_kp : KeyPair),
     Negligible (fun _n _adv =>
       -- Pr[Verify(VC*, σ*, pk) = 1 ∧ VC* ∉ Q]
       false  -- 偽造成功確率
@@ -89,10 +89,11 @@ theorem vc_signature_soundness :
 /-- VC検証の暗号学的完全性（失効確認なし） -/
 noncomputable def cryptographic_verify (vc : VerifiableCredential) (issuerPK : PublicKey) : Bool :=
   -- VCの署名を検証
-  amatSignature.verify issuerPK [] vc.signature
+  -- Note: VerifiableCredentialはinductive typeなので、getCoreを使用してW3CCredentialCoreを取得
+  amatSignature.verify issuerPK [] (VerifiableCredential.getCore vc).signature
 
 /-- ポリシー準拠性の定義（抽象化） -/
-def policy_compliant (mode : String) (requirements : String) : Bool :=
+def policy_compliant (_mode : String) (_requirements : String) : Bool :=
   true  -- 実装依存
 
 /-- プロトコル安全性の定義 -/
@@ -127,7 +128,7 @@ theorem core_safety_independence :
 theorem hash_uniqueness_property :
   ∀ (x₁ x₂ : List UInt8),
     amatHashFunction.hash x₁ = amatHashFunction.hash x₂ →
-    ∀ (A : PPTAlgorithm),
+    ∀ (_A : PPTAlgorithm),
       Negligible (fun _n _adv =>
         -- Pr[x₁ ≠ x₂ | H(x₁) = H(x₂)]
         false
@@ -139,7 +140,7 @@ theorem hash_uniqueness_property :
 -- ## DID所有権の証明
 
 /-- DID所有者の証明: 秘密鍵の知識により所有権を証明 -/
-def proves_ownership (sk : SecretKey) (did : DID) (doc : DIDDocument) : Prop :=
+def proves_ownership (sk : SecretKey) (_did : DID) (doc : DIDDocument) : Prop :=
   -- 公開鍵がDIDドキュメント内の公開鍵と一致
   ∃ (pk : PublicKey),
     doc.publicKey = pk ∧

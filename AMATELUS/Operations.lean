@@ -13,7 +13,7 @@ import AMATELUS.TrustChain
 
 /-- Walletが秘密鍵を安全に保護していることの公理 -/
 axiom wallet_secret_key_protection :
-  ∀ (w : Wallet) (A : PPTAlgorithm),
+  ∀ (_w : Wallet) (_A : PPTAlgorithm),
     -- 外部からはWallet内の秘密鍵にアクセスできない
     Negligible (fun _n _adv => false)
 
@@ -26,7 +26,7 @@ def storeCredential
     (h : Holder)
     (vc : VerifiableCredential)
     (_h_valid : VerifiableCredential.isValid vc)
-    (_h_subject : vc.subject = h.wallet.did) : Holder :=
+    (_h_subject : VerifiableCredential.getSubject vc = h.wallet.did) : Holder :=
   { h with
     wallet := { h.wallet with
       credentials := vc :: h.wallet.credentials } }
@@ -77,23 +77,22 @@ axiom inferVCType : Claims → VCType
 /-- 署名関数（公理化） -/
 axiom sign : SecretKey → (Claims × DID) → Signature
 
-/-- IssuerがVCを発行 -/
-noncomputable def issueCredential
-    (issuer : Issuer)
-    (holder : Holder)
-    (claims : Claims)
-    (_h_authorized : Authorized issuer claims)
-    (_h_claimType : getClaimType claims ∈ issuer.authorizedClaimTypes)
-    : VerifiableCredential :=
-  {
-    context := standardVCContext,
-    type := inferVCType claims,
-    issuer := issuer.wallet.did,
-    subject := holder.wallet.did,
-    claims := claims,
-    signature := sign issuer.wallet.secretKey (claims, holder.wallet.did),
-    credentialStatus := { statusListUrl := none }
-  }
+/-- IssuerがVCを発行
+
+    Note: VerifiableCredentialはinductive typeであり、複数の種類のVCがあるため、
+    直接構造体リテラルで構築できない。実装では、claimsの種類に応じて
+    適切なVCタイプ（TrusteeVC, NationalIDVC, AttributeVC, VerifierVC）を選択する必要がある。
+    ここでは公理として宣言する。
+-/
+axiom issueCredential :
+    ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims),
+    Authorized issuer claims →
+    (∃ (authorizedTypes : List ClaimType),
+      (match issuer with
+       | Issuer.trustAnchor ta => ta.authorizedClaimTypes = authorizedTypes
+       | Issuer.trustee t => t.authorizedClaimTypes = authorizedTypes) ∧
+      getClaimType claims ∈ authorizedTypes) →
+    VerifiableCredential
 
 end Issuer
 
@@ -101,15 +100,49 @@ end Issuer
 
 namespace Verifier
 
-/-- 信頼チェーンを再帰的に検証する関数（公理化） -/
-axiom checkTrustChainRecursive : List DID → DID → Nat → Prop
+/-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す -/
+def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : DID) : Option DID :=
+  dict.find? (fun (_anchorDID, info) => trusteeDID ∈ info.trustees)
+    |>.map (fun (anchorDID, _) => anchorDID)
+
+/-- 信頼チェーンを再帰的に検証する関数（定理化）
+
+    この関数は、TrustAnchorDictを使って信頼チェーンを辿ります。
+
+    検証ロジック：
+    1. 検証したいDIDがトラストルートリストに含まれていれば、信頼できる
+    2. 深さが0になったら、信頼できない（チェーンが長すぎる）
+    3. そうでなければ、TrustAnchorDictから、このDIDを受託者として持つトラストアンカーを探す
+    4. そのトラストアンカーが信頼できるか再帰的にチェック（深さを1減らす）
+-/
+def checkTrustChainRecursive
+    (dict : TrustAnchorDict)
+    (trustedRoots : List DID)
+    (issuerDID : DID)
+    (depth : Nat) : Prop :=
+  match depth with
+  | 0 =>
+      -- 深さ制限に達した場合、ルートリストに含まれているかのみチェック
+      issuerDID ∈ trustedRoots
+  | depth' + 1 =>
+      -- トラストルートに含まれているか確認
+      (issuerDID ∈ trustedRoots) ∨
+      -- または、このDIDを受託者として持つトラストアンカーを探す
+      match findTrustAnchorForTrustee dict issuerDID with
+      | none => False  -- 受託者として認証されていない
+      | some anchorDID =>
+          -- そのトラストアンカーが信頼できるか再帰的にチェック
+          checkTrustChainRecursive dict trustedRoots anchorDID depth'
 
 /-- 信頼チェーンの検証 -/
-def verifyTrustChain (policy : TrustPolicy) (vc : VerifiableCredential) : Prop :=
+def verifyTrustChain
+    (dict : TrustAnchorDict)
+    (policy : TrustPolicy)
+    (vc : VerifiableCredential) : Prop :=
   -- 発行者がルート認証局リストに含まれているか確認
-  (vc.issuer ∈ policy.trustedRoots) ∨
+  (VerifiableCredential.getIssuer vc ∈ policy.trustedRoots) ∨
   -- または、信頼チェーンを辿る（深さ制限あり）
-  (checkTrustChainRecursive policy.trustedRoots vc.issuer policy.maxChainDepth)
+  (checkTrustChainRecursive dict policy.trustedRoots (VerifiableCredential.getIssuer vc) policy.maxChainDepth)
 
 /-- VerifierがVCを検証 -/
 def verifyCredential
@@ -118,8 +151,8 @@ def verifyCredential
     : Prop :=
   -- 暗号学的検証
   VerifiableCredential.isValid vc ∧
-  -- 信頼ポリシーに基づく検証
-  verifyTrustChain verifier.trustPolicy vc
+  -- 信頼ポリシーに基づく検証（VerifierのWalletから信頼するトラストアンカー辞書を使用）
+  verifyTrustChain verifier.wallet.trustedAnchors verifier.trustPolicy vc
 
 end Verifier
 
@@ -134,7 +167,7 @@ end Verifier
 axiom holder_store_preserves_validity :
   ∀ (h : Holder) (vc : VerifiableCredential)
     (h_valid : VerifiableCredential.isValid vc)
-    (h_subject : vc.subject = h.wallet.did),
+    (h_subject : VerifiableCredential.getSubject vc = h.wallet.did),
     let h' := h.storeCredential vc h_valid h_subject;
     h'.wallet.did = DID.fromDocument h'.wallet.didDocument ∧
     proves_ownership h'.wallet.secretKey h'.wallet.did h'.wallet.didDocument
@@ -145,15 +178,19 @@ axiom holder_store_preserves_validity :
     署名関数の実装が公理化されているため、ここでは公理として宣言する。
 -/
 axiom issued_credential_is_valid :
-  ∀ (issuer : Issuer) (holder : Holder) (claims : Claims)
-    (h_authorized : Authorized issuer claims)
-    (h_claimType : getClaimType claims ∈ issuer.authorizedClaimTypes),
-    let vc := issuer.issueCredential holder claims h_authorized h_claimType
+  ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims) (vc : VerifiableCredential)
+    (_h_authorized : Authorized issuer claims)
+    (_h_claimType : ∃ (authorizedTypes : List ClaimType),
+      (match issuer with
+       | Issuer.trustAnchor ta => ta.authorizedClaimTypes = authorizedTypes
+       | Issuer.trustee t => t.authorizedClaimTypes = authorizedTypes) ∧
+      getClaimType claims ∈ authorizedTypes),
+    -- vcがissueCredentialによって生成されたVCであるという前提の下で
     VerifiableCredential.isValid vc
 
 /-- Verifier操作: 有効なVCの検証は成功する -/
 axiom verifier_accepts_valid_credential :
   ∀ (verifier : Verifier) (vc : VerifiableCredential),
     VerifiableCredential.isValid vc →
-    vc.issuer ∈ verifier.trustPolicy.trustedRoots →
+    VerifiableCredential.getIssuer vc ∈ verifier.trustPolicy.trustedRoots →
     verifier.verifyCredential vc

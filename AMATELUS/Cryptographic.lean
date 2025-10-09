@@ -10,12 +10,6 @@ import AMATELUS.SecurityAssumptions
 
 -- ## Theorem 3.1: DID Uniqueness and Integrity
 
-/-- DID.fromDocument の単射性公理
-    この公理は amatHashFunction の耐衝突性から導かれる性質を表す -/
-axiom did_fromDocument_injective :
-  ∀ (doc₁ doc₂ : DIDDocument),
-    DID.fromDocument doc₁ = DID.fromDocument doc₂ → doc₁ = doc₂
-
 /-- Theorem 3.1: DIDの一意性と完全性
     異なるDIDドキュメントは異なるDIDを生成する -/
 theorem did_uniqueness_and_integrity :
@@ -68,13 +62,13 @@ theorem did_verification_completeness :
 theorem vc_signature_completeness :
   ∀ (vc : VerifiableCredential) (sk : SecretKey) (pk : PublicKey),
     let kp := KeyPair.mk sk pk
-    let σ := amatSignature.sign sk (ByteArray.empty)  -- VCのバイト表現
+    let σ := amatSignature.sign sk []  -- VCのバイト表現
     let _vc' := { vc with signature := σ }
-    amatSignature.verify pk (ByteArray.empty) σ = true := by
+    amatSignature.verify pk [] σ = true := by
   intro _vc sk pk
   -- SignatureScheme の completeness プロパティから直接導かれる
   let kp := KeyPair.mk sk pk
-  exact amatSignature.completeness kp ByteArray.empty
+  exact amatSignature.completeness kp []
 
 -- ## Theorem 3.4: VC Signature Soundness
 
@@ -95,7 +89,7 @@ theorem vc_signature_soundness :
 /-- VC検証の暗号学的完全性（失効確認なし） -/
 noncomputable def cryptographic_verify (vc : VerifiableCredential) (issuerPK : PublicKey) : Bool :=
   -- VCの署名を検証
-  amatSignature.verify issuerPK (ByteArray.empty) vc.signature
+  amatSignature.verify issuerPK [] vc.signature
 
 /-- ポリシー準拠性の定義（抽象化） -/
 def policy_compliant (mode : String) (requirements : String) : Bool :=
@@ -131,7 +125,7 @@ theorem core_safety_independence :
 
 /-- ハッシュ関数の衝突耐性からの帰結 -/
 theorem hash_uniqueness_property :
-  ∀ (x₁ x₂ : ByteArray),
+  ∀ (x₁ x₂ : List UInt8),
     amatHashFunction.hash x₁ = amatHashFunction.hash x₂ →
     ∀ (A : PPTAlgorithm),
       Negligible (fun _n _adv =>
@@ -150,7 +144,7 @@ def proves_ownership (sk : SecretKey) (did : DID) (doc : DIDDocument) : Prop :=
   ∃ (pk : PublicKey),
     doc.publicKey = pk ∧
     -- 秘密鍵で署名できることを示す
-    ∀ (msg : ByteArray),
+    ∀ (msg : List UInt8),
       amatSignature.verify pk msg (amatSignature.sign sk msg) = true
 
 theorem did_ownership_proof :

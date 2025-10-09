@@ -29,7 +29,7 @@ structure PPTAlgorithm where
 
 /-- 耐衝突性ハッシュ関数の定義 -/
 structure CollisionResistantHash where
-  hash : ByteArray → Hash
+  hash : List UInt8 → Hash
   /-- 衝突発見の成功確率が negligible である -/
   collisionResistance : ∀ (A : PPTAlgorithm),
     Negligible (fun _n _adv =>
@@ -50,11 +50,11 @@ structure KeyPair where
 /-- 署名方式を表す構造体 -/
 structure SignatureScheme where
   keyGen : Unit → KeyPair
-  sign : SecretKey → ByteArray → Signature
-  verify : PublicKey → ByteArray → Signature → Bool
+  sign : SecretKey → List UInt8 → Signature
+  verify : PublicKey → List UInt8 → Signature → Bool
 
   /-- 完全性: 正当な署名は常に検証に成功する -/
-  completeness : ∀ (kp : KeyPair) (msg : ByteArray),
+  completeness : ∀ (kp : KeyPair) (msg : List UInt8),
     let σ := sign kp.secretKey msg
     verify kp.publicKey msg σ = true
 
@@ -80,7 +80,7 @@ axiom hashOneWayness : ∀ (A : PPTAlgorithm) (h : Hash),
 -- ## ランダムオラクルモデル
 
 /-- ランダムオラクル仮定: ハッシュ関数が理想的なランダム関数として振る舞う -/
-axiom randomOracleProperty : ∀ (x₁ x₂ : ByteArray), x₁ ≠ x₂ →
+axiom randomOracleProperty : ∀ (x₁ x₂ : List UInt8), x₁ ≠ x₂ →
   -- 異なる入力に対するハッシュ値は計算量的に独立
   ∀ (f : Hash → Hash → Bool) (A : PPTAlgorithm),
     Negligible (fun _n _adv =>
@@ -132,7 +132,7 @@ axiom keyPairIndependence : ∀ (kp₁ kp₂ : KeyPair) (A : PPTAlgorithm),
 -- ## ナンス（nonce）の一意性
 
 /-- ナンスは一意かつランダムに生成される -/
-axiom nonceUniqueness : ∀ (n₁ n₂ : ByteArray),
+axiom nonceUniqueness : ∀ (n₁ n₂ : List UInt8),
   Negligible (fun _n _adv =>
     -- Pr[n₁ = n₂ ∧ n₁, n₂ are independently generated]
     false

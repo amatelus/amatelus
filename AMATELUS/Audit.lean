@@ -11,7 +11,7 @@ import AMATELUS.SecurityAssumptions
 -- ## 攻撃者の知識モデル
 
 /-- 攻撃者が特定の情報を知っているかを表す述語 -/
-def Know (A : PPTAlgorithm) (info : ByteArray) : Prop :=
+def Know (A : PPTAlgorithm) (info : List UInt8) : Prop :=
   -- 実装では、攻撃者の知識ベースを管理
   True  -- 簡略化
 
@@ -109,7 +109,7 @@ def ComputationallyIndependent (h₁ h₂ : Hash) (A : PPTAlgorithm) : Prop :=
   )
 
 /-- AHI生成における入力の連結 -/
-def concatenateAHIInput (auditID : AuditSectionID) (nationalID : NationalID) : ByteArray :=
+def concatenateAHIInput (auditID : AuditSectionID) (nationalID : NationalID) : List UInt8 :=
   -- AuditSectionID || NationalID の連結を表す
   auditID.value ++ nationalID.value
 
@@ -122,7 +122,7 @@ axiom fromComponents_spec :
 
 /-- ランダムオラクルモデルでの独立性 -/
 theorem random_oracle_independence :
-  ∀ (input₁ input₂ : ByteArray) (A : PPTAlgorithm),
+  ∀ (input₁ input₂ : List UInt8) (A : PPTAlgorithm),
     input₁ ≠ input₂ →
     let h₁ := amatHashFunction.hash input₁
     let h₂ := amatHashFunction.hash input₂
@@ -138,9 +138,6 @@ theorem random_oracle_independence :
   let h₂ := amatHashFunction.hash input₂
   exact randomOracleProperty input₁ input₂ h_diff (fun h₁ h₂ => false) A
 
-/-- ByteArrayの右キャンセル則 -/
-axiom bytearray_append_right_cancel :
-  ∀ (a b c : ByteArray), a ++ c = b ++ c → a = b
 
 /-- 異なる監査区分IDは異なる連結入力を生成する -/
 theorem different_audit_different_input :
@@ -156,8 +153,8 @@ theorem different_audit_different_input :
   -- 連結が等しい場合、先頭部分（auditID）も等しくなければならない
   -- これは矛盾
   have : auditID₁.value = auditID₂.value := by
-    -- ByteArrayの連結の右キャンセル則から導かれる
-    exact bytearray_append_right_cancel auditID₁.value auditID₂.value nationalID.value h_eq
+    -- Listの連結の右キャンセル則から導かれる（標準ライブラリで証明済み）
+    exact List.append_cancel_right h_eq
   have : auditID₁ = auditID₂ := by
     cases auditID₁
     cases auditID₂
@@ -283,7 +280,7 @@ theorem privacy_audit_balance :
 /-- ハッシュ関数の衝突耐性: 異なる入力に対しては異なるハッシュ値が生成される
     (negligible確率を除いて) -/
 axiom hash_injective_with_high_probability :
-  ∀ (input₁ input₂ : ByteArray),
+  ∀ (input₁ input₂ : List UInt8),
     input₁ ≠ input₂ →
     amatHashFunction.hash input₁ ≠ amatHashFunction.hash input₂
 

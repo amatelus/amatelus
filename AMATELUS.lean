@@ -16,6 +16,9 @@ import AMATELUS.Cryptographic
 -- 信頼連鎖メカニズムの証明 (Theorem 4.2, 4.4)
 import AMATELUS.TrustChain
 
+-- Wallet/Holder/Issuer/Verifier操作定義
+import AMATELUS.Operations
+
 -- プライバシー保護機構の証明 (Theorem 5.1, 5.3)
 import AMATELUS.Privacy
 

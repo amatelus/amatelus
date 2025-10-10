@@ -235,10 +235,14 @@ def RootAuthorityCertificate.isValidCert (cert : RootAuthorityCertificate) : Pro
 
     Note: Issuerはinductive typeなので、パターンマッチングを使用する。
     トラストアンカーの場合のみルート証明書を持つ。
+
+    発行者として使用するDIDを明示的に引数として渡す。
 -/
-def isRootAuthority (issuer : Issuer) : Prop :=
+def isRootAuthority (issuer : Issuer) (did : DID) : Prop :=
   match issuer with
   | Issuer.trustAnchor ta =>
+      -- WalletにDIDが含まれていることを確認
+      Wallet.hasDID ta.wallet did ∧
       -- トラストアンカーはルート証明書を持つ
       match ta.wallet.rootAuthorityCertificate with
       | none => False
@@ -246,7 +250,7 @@ def isRootAuthority (issuer : Issuer) : Prop :=
           -- ルート証明書が有効である
           cert.isValidCert ∧
           -- 証明書の主体が発行者のDIDと一致
-          cert.subject = ta.wallet.did
+          cert.subject = did
   | Issuer.trustee _ =>
       -- 受託者はルート認証局ではない
       False
@@ -273,10 +277,12 @@ axiom containsAuthorizationFor : VerifiableCredential → Claims → Prop
 
     Note: Issuerはinductive typeなので、authorizedClaimTypesにアクセスするには
     パターンマッチングが必要。ここでは公理として簡略化。
+
+    発行者として使用するDIDを明示的に引数として渡す。
 -/
 axiom root_authority_authorized :
-  ∀ (issuer : Issuer) (claims : Claims) (authorizedTypes : List ClaimType),
-    isRootAuthority issuer →
+  ∀ (issuer : Issuer) (did : DID) (claims : Claims) (authorizedTypes : List ClaimType),
+    isRootAuthority issuer did →
     (match issuer with
      | Issuer.trustAnchor ta => ta.authorizedClaimTypes = authorizedTypes
      | Issuer.trustee t => t.authorizedClaimTypes = authorizedTypes) →
@@ -287,16 +293,20 @@ axiom root_authority_authorized :
 
     Note: IssuerはinductiveTypeなので、walletにアクセスするには
     パターンマッチングが必要。ここでは公理として簡略化。
+
+    各発行者が使用するDIDを明示的に引数として渡す。
 -/
 axiom trust_chain_authorized :
   ∀ (issuer authorityIssuer : Issuer) (claims : Claims) (delegationVC : VerifiableCredential)
     (issuerDID authorityDID : DID),
+    -- IssuerのWalletにissuerDIDが含まれている
     (match issuer with
-     | Issuer.trustAnchor ta => ta.wallet.did = issuerDID
-     | Issuer.trustee t => t.wallet.did = issuerDID) →
+     | Issuer.trustAnchor ta => Wallet.hasDID ta.wallet issuerDID
+     | Issuer.trustee t => Wallet.hasDID t.wallet issuerDID) →
+    -- AuthorityIssuerのWalletにauthorityDIDが含まれている
     (match authorityIssuer with
-     | Issuer.trustAnchor ta => ta.wallet.did = authorityDID
-     | Issuer.trustee t => t.wallet.did = authorityDID) →
+     | Issuer.trustAnchor ta => Wallet.hasDID ta.wallet authorityDID
+     | Issuer.trustee t => Wallet.hasDID t.wallet authorityDID) →
     VerifiableCredential.getIssuer delegationVC = authorityDID →
     VerifiableCredential.getSubject delegationVC = issuerDID →
     VerifiableCredential.isValid delegationVC →
@@ -351,16 +361,19 @@ axiom authorized_vc_validity :
     DIDからIssuerを構築する必要があるため、公理として宣言する。
 
     Note: Issuerはinductive typeなので、パターンマッチングで処理。
+    各発行者が使用するDIDを明示的に引数として渡す。
 -/
 axiom authorization_transitivity :
   ∀ (issuerB issuerA : Issuer) (claims : Claims) (delegationVC : VerifiableCredential)
     (issuerB_DID issuerA_DID : DID),
+    -- IssuerBのWalletにissuerB_DIDが含まれている
     (match issuerB with
-     | Issuer.trustAnchor ta => ta.wallet.did = issuerB_DID
-     | Issuer.trustee t => t.wallet.did = issuerB_DID) →
+     | Issuer.trustAnchor ta => Wallet.hasDID ta.wallet issuerB_DID
+     | Issuer.trustee t => Wallet.hasDID t.wallet issuerB_DID) →
+    -- IssuerAのWalletにissuerA_DIDが含まれている
     (match issuerA with
-     | Issuer.trustAnchor ta => ta.wallet.did = issuerA_DID
-     | Issuer.trustee t => t.wallet.did = issuerA_DID) →
+     | Issuer.trustAnchor ta => Wallet.hasDID ta.wallet issuerA_DID
+     | Issuer.trustee t => Wallet.hasDID t.wallet issuerA_DID) →
     VerifiableCredential.getIssuer delegationVC = issuerA_DID →
     VerifiableCredential.getSubject delegationVC = issuerB_DID →
     VerifiableCredential.isValid delegationVC →

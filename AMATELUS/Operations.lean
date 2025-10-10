@@ -21,12 +21,18 @@ axiom wallet_secret_key_protection :
 
 namespace Holder
 
-/-- HolderがWalletにVCを保存 -/
+/-- HolderがWalletにVCを保存
+
+    Holderは複数のDIDを持つことができるため、
+    どのDIDに紐付いたVCを保存するかを明示的に指定する。
+-/
 def storeCredential
     (h : Holder)
     (vc : VerifiableCredential)
+    (holderDID : DID)
     (_h_valid : VerifiableCredential.isValid vc)
-    (_h_subject : VerifiableCredential.getSubject vc = h.wallet.did) : Holder :=
+    (_h_subject : VerifiableCredential.getSubject vc = holderDID)
+    (_h_has_did : Wallet.hasDID h.wallet holderDID) : Holder :=
   { h with
     wallet := { h.wallet with
       credentials := vc :: h.wallet.credentials } }
@@ -47,20 +53,26 @@ axiom combinePrecomputedProofWithNonce :
   SecretKey →
   ZeroKnowledgeProof
 
-/-- HolderがZKPを生成してVCを提示 -/
+/-- HolderがZKPを生成してVCを提示
+
+    Holderは複数のDIDを持つことができるため、
+    どのIdentityを使ってZKPを生成するかを明示的に指定する。
+-/
 noncomputable def presentCredentialAsZKP
     (h : Holder)
     (vc : VerifiableCredential)
+    (holderIdentity : Identity)
     (statement : PublicInput)
-    (nonce : Nonce) : ZeroKnowledgeProof :=
-  -- Wallet内の秘密鍵を使ってZKP生成
+    (nonce : Nonce)
+    (_h_has_identity : holderIdentity ∈ h.wallet.identities) : ZeroKnowledgeProof :=
+  -- Wallet内の指定されたIdentityの秘密鍵を使ってZKP生成
   -- 事前計算されたProofをnonceと結合
   combinePrecomputedProofWithNonce
     h.wallet.precomputedProofs
     vc
     statement
     nonce
-    h.wallet.secretKey
+    holderIdentity.secretKey
 
 end Holder
 
@@ -160,17 +172,22 @@ end Verifier
 
 /-- Holder操作: 保存後もWalletの一貫性が保たれる（公理化）
 
-    注意: wallet_did_consistencyは公理なので、
+    注意: wallet_identity_consistencyは公理なので、
     保存操作後もこの性質が保たれることは自明だが、
     Leanの型システムで直接表現できないため、公理として宣言する。
+
+    Walletが複数のIdentityを持つため、保存操作後も各Identityの一貫性が保たれることを保証する。
 -/
 axiom holder_store_preserves_validity :
-  ∀ (h : Holder) (vc : VerifiableCredential)
+  ∀ (h : Holder) (vc : VerifiableCredential) (holderDID : DID)
     (h_valid : VerifiableCredential.isValid vc)
-    (h_subject : VerifiableCredential.getSubject vc = h.wallet.did),
-    let h' := h.storeCredential vc h_valid h_subject;
-    h'.wallet.did = DID.fromDocument h'.wallet.didDocument ∧
-    proves_ownership h'.wallet.secretKey h'.wallet.did h'.wallet.didDocument
+    (h_subject : VerifiableCredential.getSubject vc = holderDID)
+    (h_has_did : Wallet.hasDID h.wallet holderDID),
+    let h' := h.storeCredential vc holderDID h_valid h_subject h_has_did;
+    ∀ (identity : Identity),
+      identity ∈ h'.wallet.identities →
+      identity.did = DID.fromDocument identity.didDocument ∧
+      proves_ownership identity.secretKey identity.did identity.didDocument
 
 /-- Issuer操作: 発行されたVCは有効である（公理化）
 

@@ -27,6 +27,7 @@ structure DIDDocument where
   publicKey : PublicKey
   service : ServiceEndpoint
   metadata : Metadata
+  deriving Repr, DecidableEq
 
 /-- DID (Decentralized Identifier) を表す型
     DID := did:amatelus:H(DIDDoc) -/
@@ -559,6 +560,17 @@ structure ZKPRequirements where
 
 -- ## Wallet and Role Definitions
 
+/-- 1つのDIDアイデンティティを表す構造体
+
+    Walletは複数のアイデンティティを保持でき、ユーザーは任意にいくつでもDIDを発行できる。
+    各アイデンティティは、DID、DIDドキュメント、秘密鍵の組として表現される。
+-/
+structure Identity where
+  did : DID
+  didDocument : DIDDocument
+  secretKey : SecretKey
+  deriving Repr, DecidableEq
+
 /-- 事前計算されたZKP -/
 structure PrecomputedZKP where
   partialProof : Proof
@@ -651,12 +663,15 @@ def allValid (dict : TrustAnchorDict) : Prop :=
 
 end TrustAnchorDict
 
-/-- Walletはユーザーの秘密情報を安全に保管する -/
+/-- Walletはユーザーの秘密情報を安全に保管する
+
+    ユーザーは任意にいくつでもDIDを発行でき、Walletは複数のアイデンティティを保持する。
+    各アイデンティティは独立したDID、DIDドキュメント、秘密鍵の組として管理される。
+-/
 structure Wallet where
-  -- アイデンティティ
-  did : DID
-  didDocument : DIDDocument
-  secretKey : SecretKey
+  -- 保持する複数のアイデンティティ
+  -- ユーザーは任意にいくつでもDIDを発行できる
+  identities : List Identity
 
   -- 保管されている資格情報
   credentials : List VerifiableCredential
@@ -668,8 +683,32 @@ structure Wallet where
   precomputedProofs : List PrecomputedZKP
 
   -- 信頼するトラストアンカーの辞書
-  -- { トラストアンカーのDID ↦ { DIDDocument, 受託者のリスト } }
+  -- { トラストアンカーのDID ↦ { DIDDocument、受託者のリスト } }
   trustedAnchors : TrustAnchorDict
+
+namespace Wallet
+
+/-- WalletにDIDが含まれているかを確認する -/
+def containsDID (wallet : Wallet) (did : DID) : Bool :=
+  wallet.identities.any (fun identity => identity.did == did)
+
+/-- WalletからDIDに対応するIdentityを取得する -/
+def getIdentity (wallet : Wallet) (did : DID) : Option Identity :=
+  wallet.identities.find? (fun identity => identity.did == did)
+
+/-- WalletにDIDが含まれていることを表す命題 -/
+def hasDID (wallet : Wallet) (did : DID) : Prop :=
+  ∃ (identity : Identity), identity ∈ wallet.identities ∧ identity.did = did
+
+end Wallet
+
+/-- リストが空でないことを長さから証明 -/
+theorem list_length_pos_of_forall_mem {α : Type _} (l : List α) (P : α → Prop) :
+  (∀ x ∈ l, P x) → l ≠ [] → l.length > 0 := by
+  intro _ h_ne
+  cases l with
+  | nil => contradiction
+  | cons _ _ => simp [List.length_cons]
 
 /-- 検証者認証メッセージ
 
@@ -726,15 +765,21 @@ def validateVerifierAuth (msg : VerifierAuthMessage) (holderWallet : Wallet) : P
   -- 6. authProofが有効である（関係式は実装依存のため公理化）
   ∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation
 
+end VerifierAuthMessage
+
+namespace VerifierAuthMessage
+
 /-- Theorem: 正規の検証者は検証に成功する
 
     トラストアンカーから正当に発行されたVerifierVCを持ち、
     有効なZKPを提示する検証者は、Holderの検証を通過する。
 -/
-axiom authentic_verifier_passes :
+theorem authentic_verifier_passes :
   ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet),
     -- 前提条件: Holderがexpectedトラストアンカーを信頼している
     (TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isSome →
+    -- 前提条件: verifierCredentialsが空でない
+    msg.verifierCredentials ≠ [] →
     -- 前提条件: すべてのVerifierVCが正規に発行されている
     (∀ vc ∈ msg.verifierCredentials,
       VerifiableCredential.isValid vc ∧
@@ -743,7 +788,26 @@ axiom authentic_verifier_passes :
     -- 前提条件: authProofが有効
     (∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation) →
     -- 結論: 検証に成功する
-    validateVerifierAuth msg holderWallet
+    validateVerifierAuth msg holderWallet := by
+  intro msg holderWallet h_isSome h_ne h_vcs h_zkp
+  -- validateVerifierAuthの定義を展開
+  unfold validateVerifierAuth
+  -- 4つの連言を構築
+  constructor
+  · -- 条件1: isSome
+    exact h_isSome
+  constructor
+  · -- 条件2: length > 0
+    exact list_length_pos_of_forall_mem msg.verifierCredentials
+      (fun vc => VerifiableCredential.isValid vc ∧
+        VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
+        VerifiableCredential.getSubject vc = msg.verifierDID)
+      h_vcs h_ne
+  constructor
+  · -- 条件3: すべてのVCが有効
+    exact h_vcs
+  · -- 条件4: ZKPが有効
+    exact h_zkp
 
 /-- Theorem: 偽警官（不正な検証者）は検証に失敗する
 
@@ -754,7 +818,7 @@ axiom authentic_verifier_passes :
     4. 他のDIDのVerifierVCを提示する（なりすまし）
     5. 無効なZKPを提示する
 -/
-axiom fake_verifier_fails :
+theorem fake_verifier_fails :
   ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet),
     -- 条件1: 信頼されていないトラストアンカー
     ((TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isNone ∨
@@ -766,23 +830,52 @@ axiom fake_verifier_fails :
      -- 条件5: 無効なZKP
      (∀ (relation : Relation), ¬ZeroKnowledgeProof.isValid msg.authProof relation)) →
     -- 結論: 検証に失敗する
-    ¬validateVerifierAuth msg holderWallet
+    ¬validateVerifierAuth msg holderWallet := by
+  intro msg holderWallet h_bad
+  unfold validateVerifierAuth
+  intro ⟨h_isSome, h_len, h_vcs, h_zkp⟩
+  -- h_badは3つの場合のいずれか
+  cases h_bad with
+  | inl h_isNone =>
+      -- Case 1: isNone → ¬isSome (矛盾)
+      simp [Option.isNone_iff_eq_none] at h_isNone
+      simp [Option.isSome_iff_exists] at h_isSome
+      obtain ⟨val, h_eq⟩ := h_isSome
+      rw [h_isNone] at h_eq
+      contradiction
+  | inr h_or =>
+      cases h_or with
+      | inl h_bad_vc =>
+          -- Case 2: ∃ bad VC → ¬(∀ VC good)
+          obtain ⟨vc, h_mem, h_bad_prop⟩ := h_bad_vc
+          have h_good := h_vcs vc h_mem
+          cases h_bad_prop with
+          | inl h_invalid => exact h_invalid h_good.1
+          | inr h_or2 =>
+              cases h_or2 with
+              | inl h_wrong_issuer => exact h_wrong_issuer h_good.2.1
+              | inr h_wrong_subject => exact h_wrong_subject h_good.2.2
+      | inr h_no_zkp =>
+          -- Case 3: ∀ relation ¬valid → ¬(∃ relation valid)
+          obtain ⟨relation, h_valid⟩ := h_zkp
+          exact h_no_zkp relation h_valid
 
 end VerifierAuthMessage
 
-/-- WalletとDIDの一貫性公理
+/-- WalletとIdentityの一貫性公理
 
-    すべてのWalletは、以下の不変条件を満たす：
-    1. wallet.did = DID.fromDocument wallet.didDocument
-    2. wallet.secretKeyはwallet.didDocumentのpublicKeyに対応する秘密鍵（Cryptographic.leanで定義される）
+    すべてのWalletに保持されるすべてのIdentityは、以下の不変条件を満たす：
+    1. identity.did = DID.fromDocument identity.didDocument
+    2. identity.secretKeyはidentity.didDocumentのpublicKeyに対応する秘密鍵（Cryptographic.leanで定義される）
 
     この公理は、Walletが正しく初期化され、改ざんされていないことを保証する。
 
     注意: 完全な定義（proves_ownershipを含む）はOperations.leanでインポート後に使用可能
 -/
-axiom wallet_did_consistency :
-  ∀ (w : Wallet),
-    w.did = DID.fromDocument w.didDocument
+axiom wallet_identity_consistency :
+  ∀ (w : Wallet) (identity : Identity),
+    identity ∈ w.identities →
+    identity.did = DID.fromDocument identity.didDocument
 
 /-- 信頼ポリシーの定義 -/
 structure TrustPolicy where
@@ -841,16 +934,21 @@ namespace DID
 
     HolderがWallet内の正規のDID-DIDドキュメントペアを提示した場合、
     Verifierの検証は必ず成功する（完全性）。
+
+    Walletが複数のアイデンティティを保持する場合、Holderは使用する
+    アイデンティティを選択し、そのアイデンティティが正規のペアである
+    ことを証明できる。
 -/
 theorem holder_valid_pair_passes :
-  ∀ (holder : Holder),
-    let did := holder.wallet.did
-    let doc := holder.wallet.didDocument
+  ∀ (holder : Holder) (identity : Identity),
+    identity ∈ holder.wallet.identities →
+    let did := identity.did
+    let doc := identity.didDocument
     isValid did doc := by
-  intro holder did doc
+  intro holder identity h_mem did doc
   unfold isValid
   -- Walletの一貫性公理により
-  -- holder.wallet.did = DID.fromDocument holder.wallet.didDocument
-  exact wallet_did_consistency holder.wallet
+  -- identity.did = DID.fromDocument identity.didDocument
+  exact wallet_identity_consistency holder.wallet identity h_mem
 
 end DID

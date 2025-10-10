@@ -259,13 +259,17 @@ theorem quantum_attack_resistance :
   intro _
   trivial
 
-/-- Availability攻撃への耐性 -/
+/-- Availability攻撃への耐性
+
+    注意: 新しい設計では、ValidDIDDocument（所有権検証済み）の場合のみ
+    DID解決の独立性が保証されます。
+-/
 theorem availability_attack_resistance :
   -- Theorem 3.2により、DID解決が外部サービスに依存しない
-  ∀ (did : DID) (doc : DIDDocument),
-    did_resolution_is_independent did doc →
+  ∀ (did : DID) (vdoc : ValidDIDDocument),
+    did_resolution_is_independent did vdoc →
     True := by
-  intro _did _doc _h_indep
+  intro _did _vdoc _h_indep
   trivial
 
 -- ## 実装レベルの考慮事項

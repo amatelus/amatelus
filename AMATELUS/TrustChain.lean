@@ -105,15 +105,19 @@ theorem trust_via_chain :
 -- ## Definition 4.3: Same Owner Relation
 
 /-- 同一所有者関係の定義
-    SameOwner(DID₁, DID₂) := ∃ sk: Controls(sk, DID₁) ∧ Controls(sk, DID₂) -/
+    SameOwner(DID₁, DID₂) := ∃ sk: Controls(sk, DID₁) ∧ Controls(sk, DID₂)
+
+    注意: 新しい設計では、ValidDIDDocument（所有権検証済み）のみが
+    所有権証明の対象となります。Invalid DIDDocumentは所有権証明ができません。
+-/
 def SameOwner (did₁ did₂ : DID) : Prop :=
   ∃ (sk : SecretKey),
-    ∀ (doc₁ doc₂ : DIDDocument),
-      did₁ = DID.fromDocument doc₁ →
-      did₂ = DID.fromDocument doc₂ →
+    ∀ (vdoc₁ vdoc₂ : ValidDIDDocument),
+      did₁ = DID.valid (DID.fromValidDocument vdoc₁) →
+      did₂ = DID.valid (DID.fromValidDocument vdoc₂) →
       -- 同じ秘密鍵で両方のDIDを制御できる
-      proves_ownership sk did₁ doc₁ ∧
-      proves_ownership sk did₂ doc₂
+      proves_ownership sk did₁ vdoc₁ ∧
+      proves_ownership sk did₂ vdoc₂
 
 -- ## Theorem 4.4: VC Reissuance Consistency
 

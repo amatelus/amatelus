@@ -114,7 +114,7 @@ namespace Verifier
 
 /-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す -/
 def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : DID) : Option DID :=
-  dict.find? (fun (_anchorDID, info) => trusteeDID ∈ info.trustees)
+  dict.find? (fun (_anchorDID, info) => info.trustees.contains trusteeDID)
     |>.map (fun (anchorDID, _) => anchorDID)
 
 /-- 信頼チェーンを再帰的に検証する関数（定理化）
@@ -177,6 +177,9 @@ end Verifier
     Leanの型システムで直接表現できないため、公理として宣言する。
 
     Walletが複数のIdentityを持つため、保存操作後も各Identityの一貫性が保たれることを保証する。
+
+    新しい設計では、identity.didDocumentがValidDIDDocumentである場合のみ
+    所有権証明が可能です。
 -/
 axiom holder_store_preserves_validity :
   ∀ (h : Holder) (vc : VerifiableCredential) (holderDID : DID)
@@ -184,10 +187,11 @@ axiom holder_store_preserves_validity :
     (h_subject : VerifiableCredential.getSubject vc = holderDID)
     (h_has_did : Wallet.hasDID h.wallet holderDID),
     let h' := h.storeCredential vc holderDID h_valid h_subject h_has_did;
-    ∀ (identity : Identity),
+    ∀ (identity : Identity) (vdoc : ValidDIDDocument),
       identity ∈ h'.wallet.identities →
+      identity.didDocument = DIDDocument.valid vdoc →
       identity.did = DID.fromDocument identity.didDocument ∧
-      proves_ownership identity.secretKey identity.did identity.didDocument
+      proves_ownership identity.secretKey identity.did vdoc
 
 /-- Issuer操作: 発行されたVCは有効である（公理化）
 

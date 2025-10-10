@@ -5,7 +5,7 @@
 基本的なセキュリティパラメータと暗号学的仮定を定義します。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.CryptoTypes
 
 -- ## セキュリティパラメータ
 

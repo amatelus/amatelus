@@ -4,6 +4,9 @@
 このファイルは、AMATELUSプロトコルの形式証明のメインモジュールです。
 -/
 
+-- 暗号プリミティブ型定義
+import AMATELUS.CryptoTypes
+
 -- 基本定義
 import AMATELUS.Basic
 

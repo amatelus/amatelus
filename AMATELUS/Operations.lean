@@ -99,7 +99,8 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : ZeroKnow
       created := { unixTime := 0 }  -- タイムスタンプは実装依存
     }
     holderDID := DID.invalid { hash := { value := [] }, reason := "dummy" }  -- DIDは材料に含まれないためダミー
-    challengeNonce := material.nonce
+    holderNonce := ⟨[]⟩  -- 単方向プロトコル用（プレースホルダ）
+    verifierNonce := material.nonce  -- Verifierが生成したnonce
     claimedAttributes := "ZKP-based credential presentation"
   }
   ZeroKnowledgeProof.valid {

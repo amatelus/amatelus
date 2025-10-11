@@ -35,7 +35,7 @@ def Privacy (state : ProtocolState) : Prop :=
   -- DID間の名寄せが困難
   ∀ did₁ ∈ state.dids, ∀ did₂ ∈ state.dids,
     did₁ ≠ did₂ →
-    ∀ A : PPTAlgorithm, Negligible (fun _n _adv => false)
+    ∀ _ : PPTAlgorithm, Negligible (fun _n _adv => false)
 
 /-- プロトコルの監査可能性 -/
 def Auditability (state : ProtocolState) : Prop :=

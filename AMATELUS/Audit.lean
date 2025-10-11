@@ -8,13 +8,6 @@
 import AMATELUS.Basic
 import AMATELUS.SecurityAssumptions
 
--- ## 攻撃者の知識モデル
-
-/-- 攻撃者が特定の情報を知っているかを表す述語 -/
-def Know (A : PPTAlgorithm) (info : List UInt8) : Prop :=
-  -- 実装では、攻撃者の知識ベースを管理
-  True  -- 簡略化
-
 -- ## Theorem 6.1: Reverse Engineering Resistance (逆引き制限)
 
 /-- ハッシュの一方向性による保護（具体的なセキュリティレベル）
@@ -110,7 +103,7 @@ theorem audit_entropy_sufficient : audit_section_entropy ≥ securityParameter :
     総当たり攻撃の量子コストは128ビットであり、NIST最小要件を満たす。
 -/
 theorem brute_force_resistance_quantum_secure :
-  ∀ (auditID : AuditSectionID) (nationalID : NationalID),
+  ∀ (_ : AuditSectionID) (_ : NationalID),
     (bruteForceSecurity 256).quantumBits ≥ minSecurityLevel.quantumBits := by
   intro _auditID _nationalID
   -- 128 ≥ 128
@@ -282,7 +275,7 @@ theorem limited_audit_capability_quantum_secure :
 
 /-- プライバシー保護と監査可能性の両立 -/
 theorem privacy_audit_balance :
-  ∀ (auditID : AuditSectionID) (nationalID : NationalID) (A : PPTAlgorithm),
+  ∀ (auditID : AuditSectionID) (nationalID : NationalID),
     -- 認可された監査では名寄せが可能
     let ahi₁ := AnonymousHashIdentifier.fromComponents auditID nationalID
     let ahi₂ := AnonymousHashIdentifier.fromComponents auditID nationalID

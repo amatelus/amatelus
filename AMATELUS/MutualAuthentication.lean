@@ -1,14 +1,11 @@
 /-
 # 統一された相互認証プロトコル（Unified Mutual Authentication）
 
-このファイルは、公理なしで形式化された相互認証プロトコルを定義します。
-
 ## 設計原則
 
 1. **Verifierからの先行認証**: Verifierがまずナンスとクレーム情報を提示
 2. **トラストアンカー検証**: Holderが全てのクレーム署名者を検証
 3. **人間中心の判断**: 最終判断はHolderが行う
-4. **公理なし**: すべて決定的な関数とamatZKPで実装
 
 ## プロトコルフロー
 
@@ -93,7 +90,7 @@ def validateVerifierMessage (msg : VerifierInitialMessage) (holderWallet : Walle
 
 /-- Holderの応答生成（人間の判断を外部入力として受け取る）
 
-    この関数は公理を使わず、以下の決定的なステップで構成される：
+    この関数は以下の決定的なステップで構成される：
     1. Verifierメッセージの基本検証（決定的）
     2. 人間の判断を外部入力として受け取る（パラメータ）
     3. 両方がtrueならZKPを生成（amatZKP.proverを使用）
@@ -138,7 +135,8 @@ noncomputable def holderRespond
         created := { unixTime := 0 }  -- プレースホルダ
       }
       holderDID := holderIdentity.did
-      challengeNonce := msg.nonce2  -- Verifierのナンス
+      holderNonce := nonce1  -- Holderが生成したナンス
+      verifierNonce := msg.nonce2  -- Verifierが生成したナンス
       claimedAttributes := "Identity verification"
     }
 
@@ -259,10 +257,7 @@ structure MutualAuthSession where
   verifierMessage : VerifierInitialMessage
   holderResponse : Option HolderResponse
 
-/-- セッション実行関数
-
-    公理なしで完全に決定的に実装される
--/
+/-- セッション実行関数 -/
 noncomputable def executeMutualAuth
     (verifierMessage : VerifierInitialMessage)
     (holderWallet : Wallet)
@@ -277,7 +272,7 @@ noncomputable def executeMutualAuth
 
 -- ## 実装要件
 
-/-- 実装要件: 公理なし相互認証プロトコル
+/-- 実装要件: 相互認証プロトコル
 
     **Phase 1: Verifierの初期メッセージ**
     ```

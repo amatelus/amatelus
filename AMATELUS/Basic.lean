@@ -805,10 +805,10 @@ structure VerifierAuthZKPCore where
     例: "私は20歳以上である"、"私は運転免許を持っている"など
 
     **双方向ナンス:**
-    challengeNonceは双方のナンスの組み合わせを含む。
-    - Holderが nonce_holder を生成してVerifierに送信
-    - Verifierが nonce_verifier を生成してHolderに送信
-    - challengeNonce = H(nonce_holder || nonce_verifier)
+    両方のナンスを明示的に格納することで、リプレイ攻撃耐性を実現。
+    - holderNonce: Holderが生成したnonce（相互認証時）
+    - verifierNonce: Verifierが生成したnonce
+    - どちらか一方が一意なら、ペア全体が一意（相互防衛）
 
     この設計により、どちらか一方のWalletにバグがあっても、
     もう一方のランダムネスにより保護される。
@@ -817,7 +817,8 @@ structure VerifierAuthZKPCore where
 structure HolderCredentialZKPCore where
   core : W3CZKProofCore
   holderDID : DID             -- 証明者（Holder）のDID
-  challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
+  holderNonce : Nonce         -- Holderが生成したnonce
+  verifierNonce : Nonce       -- Verifierが生成したnonce
   claimedAttributes : String  -- 証明する属性の記述
 
 /-- VerifierAuthZKPの型エイリアス（MutualAuthenticationで使用） -/

@@ -24,9 +24,12 @@ structure VerificationSession where
 
     HolderがVerifierにZKPを提示した記録。
     リプレイ攻撃では、攻撃者がこの記録を盗んで再利用しようとする。
+
+    **注意**: この構造体はリプレイ攻撃の形式化のための補助構造であり、
+    実際のプロトコルには存在しません。HolderのDIDやVCは名寄せ回避のため
+    ZKPから取り出せないため、Holderフィールドは含めません。
 -/
 structure ZKPPresentation where
-  holder : Holder
   session : VerificationSession
   zkp : ZeroKnowledgeProof
   presentedAt : Timestamp
@@ -64,19 +67,19 @@ structure NoncePair where
 
 /-- ZKPの構造的定義（概念レベル）
 
-    **概念レベル**: ZKP = {(nonce1, nonce2), statement, holder}
+    **概念レベル**: ZKP = {(nonce1, nonce2), statement}
 
     ZKPは以下の要素から概念的に構成される：
     1. (nonce1, nonce2): 両方のナンスのペア
        - nonce1: Holderが生成（相互認証時）
        - nonce2: Verifierが生成
     2. statement: 証明したい内容（公開入力）
-    3. holder: ZKPを生成したHolder（秘密鍵の所有者）
 
     **実装レベル**:
-    - statement.data = serialize(claims) || nonce1.value || nonce2.value
+    - HolderCredentialZKPCoreに明示的に holderNonce と verifierNonce を格納
     - ZKP生成時に両方のnonceとstatementが暗号学的に束縛される
-    - Holderの秘密鍵で署名することで、holderも暗号学的に束縛される
+    - ZKPは特定の秘密鍵で署名されるが、名寄せ回避のためHolderのDIDは
+      ZKPから取り出せない設計
 
     **責任の対称性**:
     - Holderは nonce1 の一意性を保証（自己責任）
@@ -84,9 +87,29 @@ structure NoncePair where
     - どちらか一方が一意なら、ペア (nonce1, nonce2) は一意
     - よって、相手のバグから自己防衛できる
 
-    この構造により、同じZKPは必ず同じ{(nonce1, nonce2), statement, holder}に束縛される。
+    この構造により、同じZKPは必ず同じ{(nonce1, nonce2), statement}に束縛される。
 -/
-axiom zkpGetNoncePair : ZeroKnowledgeProof → NoncePair
+def zkpGetNoncePair (zkp : ZeroKnowledgeProof) : NoncePair :=
+  match zkp with
+  | ZeroKnowledgeProof.valid vzkp =>
+      match vzkp.zkpType with
+      | Sum.inl verifierAuthZKP =>
+          -- VerifierAuthZKPの場合、単一のchallengeNonceを両方に使用
+          -- （後方互換性のため、プレースホルダとして空のnonceを返す）
+          { holderNonce := ⟨[]⟩, verifierNonce := verifierAuthZKP.challengeNonce }
+      | Sum.inr holderCredentialZKP =>
+          -- HolderCredentialZKPの場合、明示的に格納された両方のnonceを取得
+          { holderNonce := holderCredentialZKP.holderNonce,
+            verifierNonce := holderCredentialZKP.verifierNonce }
+  | ZeroKnowledgeProof.invalid izkp =>
+      match izkp.zkpType with
+      | Sum.inl verifierAuthZKP =>
+          -- InvalidZKPの場合もプレースホルダ
+          { holderNonce := ⟨[]⟩, verifierNonce := verifierAuthZKP.challengeNonce }
+      | Sum.inr holderCredentialZKP =>
+          -- InvalidZKPでも構造からnonceを取得可能
+          { holderNonce := holderCredentialZKP.holderNonce,
+            verifierNonce := holderCredentialZKP.verifierNonce }
 
 /-- 後方互換性: 単一のnonce（Verifierのnonce2のみ）を取得
 
@@ -100,31 +123,27 @@ noncomputable def zkpGetNonce (zkp : ZeroKnowledgeProof) : Nonce :=
 def zkpGetStatement (zkp : ZeroKnowledgeProof) : Statement :=
   (ZeroKnowledgeProof.getCore zkp).publicInput
 
-/-- ZKPからHolderを取得
-
-    ZKPは特定のHolderの秘密鍵で生成されるため、
-    構造的にHolderと結びついている。
--/
-axiom zkpGetHolder : ZeroKnowledgeProof → Holder
-
 /-- ZKPの構造的一意性
 
-    各ZKPは一意の{(nonce1, nonce2), statement, holder}に対応する。
+    各ZKPは一意の{(nonce1, nonce2), statement}に対応する。
     これは関数の等式性から自明に導かれる。
 
     Proof: zkp₁ = zkp₂ なら、任意の関数 f に対して f(zkp₁) = f(zkp₂) が成立する。
+
+    **注意**:
+    - 名寄せ回避のため、HolderのDIDもZKPから取り出せない
+    - リプレイ攻撃の証明には、nonceとstatementの一意性のみが必要
 -/
 theorem zkp_structure_unique :
   ∀ (zkp₁ zkp₂ : ZeroKnowledgeProof),
     zkp₁ = zkp₂ →
     zkpGetNoncePair zkp₁ = zkpGetNoncePair zkp₂ ∧
-    zkpGetStatement zkp₁ = zkpGetStatement zkp₂ ∧
-    zkpGetHolder zkp₁ = zkpGetHolder zkp₂ := by
+    zkpGetStatement zkp₁ = zkpGetStatement zkp₂ := by
   intro zkp₁ zkp₂ h_eq
   -- zkp₁ = zkp₂ を使って書き換え
   rw [h_eq]
   -- すべて同じzkp₂についての等式なので自明
-  exact ⟨rfl, rfl, rfl⟩
+  exact ⟨rfl, rfl⟩
 
 /-- NoncePairの等号性
 
@@ -166,23 +185,13 @@ theorem nonce_pair_unique_if_either_unique :
   | inr h_verifier_ne =>
       exact h_verifier_ne h_verifier_eq
 
-/-- 宇宙的な辞書：各nonceに対してそのnonceで証明可能なstatementのリスト
-
-    この宇宙には `{nonce_x: Statement[]}` のような無限の辞書が存在すると考える。
-    ZKP生成時に、statementがnonceと暗号学的に束縛され、
-    この辞書の対応するリストに追加される。
-
-    **重要**: 同じstatementが異なるnonceの辞書に現れることはある
-              （異なるセッションで同じ内容を証明する場合）
-              しかし、ZKP = {nonce, statement} のペアとしては一意である。
--/
-axiom nonceToStatementDict : Nonce → List Statement
-
 /-- ナンスがZKPに束縛されていることを表す述語（後方互換性）
 
-    ZKPがnonceに束縛されている ⟺
-    1. ZKPが持つnonceがこのnonceと一致する
-    2. ZKPのstatementがnonceToStatementDictに含まれる
+    ZKPがnonceに束縛されている ⟺ ZKPが持つnonceがこのnonceと一致する
+
+    **ZKPの構造的性質による束縛:**
+    ZKP生成時にnonceが公開入力に含まれ、zkpGetNonceで取り出せる。
+    この構造的性質だけで束縛を定義できる。
 
     実装では: ZKP生成時にnonceを公開入力に含め、
     証明がこのnonceに対してのみ検証可能になる。
@@ -190,13 +199,16 @@ axiom nonceToStatementDict : Nonce → List Statement
     注: 単方向プロトコル用の定義。Verifierのnonce（nonce2）のみをチェック。
 -/
 noncomputable def nonceIsBoundToZKP (nonce : Nonce) (zkp : ZeroKnowledgeProof) : Prop :=
-  zkpGetNonce zkp = nonce ∧ zkpGetStatement zkp ∈ nonceToStatementDict nonce
+  zkpGetNonce zkp = nonce
 
 /-- ナンスペアがZKPに束縛されていることを表す述語（相互認証用）
 
     ZKPが(nonce1, nonce2)に束縛されている ⟺
-    1. ZKPが持つナンスペアがこのペアと一致する
-    2. ZKPのstatementがnonce2（Verifierのnonce）の辞書に含まれる
+    ZKPが持つナンスペアがこのペアと一致する
+
+    **ZKPの構造的性質による束縛:**
+    ZKP生成時に両方のnonceが公開入力に含まれ、zkpGetNoncePairで取り出せる。
+    この構造的性質だけで束縛を定義できる。
 
     **相互防衛の仕組み:**
     - ZKPは構造的に (nonce1, nonce2) のペア全体に束縛される
@@ -204,12 +216,11 @@ noncomputable def nonceIsBoundToZKP (nonce : Nonce) (zkp : ZeroKnowledgeProof) :
     - よって、各当事者は自分のnonceを一意にすることで自己防衛できる
 
     実装では:
-    - statement.data = serialize(claims) || nonce1.value || nonce2.value
+    - publicInput.data = serialize(claims) || nonce1.value || nonce2.value
     - 両方のnonceが公開入力に含まれる
 -/
 def noncePairIsBoundToZKP (pair : NoncePair) (zkp : ZeroKnowledgeProof) : Prop :=
-  zkpGetNoncePair zkp = pair ∧
-  zkpGetStatement zkp ∈ nonceToStatementDict pair.verifierNonce
+  zkpGetNoncePair zkp = pair
 
 /-- Verifierがナンスを検証する述語
 
@@ -245,33 +256,6 @@ structure ReplayAttack where
   -- 元のセッションとは異なる
   differentSession : replayedSession ≠ originalPresentation.session
 
-/-- 公理: セッションごとに一意なナンス（実装者の責任）
-
-    **この公理は実装者の責任を表現している:**
-    異なる検証セッションは異なるナンスを使用する。
-    これはVerifierがランダムに新しいナンスを生成することで保証される。
-
-    **重要な設計思想:**
-    - この公理が成立する ⟺ Verifier実装が正しい
-    - もしこの公理が破られる（nonceが重複する）場合:
-      → リプレイ攻撃が成立する（nonce_reuse_enables_replay_attack）
-      → **これはVerifier実装者の責任であり、プロトコルの責任範囲外**
-    - **プロトコルは手段を提供するが、実装品質は保証しない**
-
-    類似例:
-    - 「安全なブラウザを選ぶのはユーザーの責任」
-    - 「秘密鍵を安全に保管するのは所有者の責任」
-    - 「一意なnonceを生成するのはVerifier実装者の責任」
-
-    **二重ナンス束縛による改善:**
-    相互認証プロトコルでは、Holderも一意なnonceを生成することで、
-    Verifierの実装バグから自己防衛できる（holder_self_defense）。
--/
-axiom different_sessions_have_different_nonces :
-  ∀ (session₁ session₂ : VerificationSession),
-    session₁ ≠ session₂ →
-    session₁.nonce ≠ session₂.nonce
-
 /-- Theorem: ナンスペア束縛の一意性（ZKPの構造から証明）
 
     **ZKP = {(nonce1, nonce2), statement} の構造により、一意性が保証される**
@@ -294,13 +278,11 @@ theorem nonce_pair_binding_is_unique :
   intro zkp pair₁ pair₂ h₁ h₂
   -- noncePairIsBoundToZKP の定義を展開
   unfold noncePairIsBoundToZKP at h₁ h₂
-  -- h₁: zkpGetNoncePair zkp = pair₁ ∧ ...
-  -- h₂: zkpGetNoncePair zkp = pair₂ ∧ ...
-  have h_pair₁ := h₁.1
-  have h_pair₂ := h₂.1
+  -- h₁: zkpGetNoncePair zkp = pair₁
+  -- h₂: zkpGetNoncePair zkp = pair₂
   -- zkpGetNoncePair zkp は一意に定まる
   -- よって pair₁ = pair₂
-  rw [← h_pair₁, h_pair₂]
+  rw [← h₁, h₂]
 
 /-- Theorem: ナンス束縛の一意性（後方互換性）
 
@@ -311,9 +293,7 @@ theorem nonce_pair_binding_is_unique :
     2. ZKPがnonce₂に束縛 → zkpGetNonce(zkp) = nonce₂
     3. 同じzkpから取り出されるnonceは一意 → nonce₁ = nonce₂
 
-    **重要**: この定理は公理ではなく、ZKPの構造から証明される！
-              `{nonce_x: Proof[]}` から `{nonce: Statement[]}` + `ZKP={nonce, statement}`
-              への変更により、一意性が自明になった。
+    **重要**: zkpGetNonceが関数であることから、一意性が自明に従う。
 
     リプレイ攻撃の防止：
     - zkp₁のnonce = nonce₁（構造から一意に定まる）
@@ -334,13 +314,11 @@ theorem nonce_binding_is_unique :
   intro zkp nonce₁ nonce₂ h₁ h₂
   -- nonceIsBoundToZKP の定義を展開
   unfold nonceIsBoundToZKP at h₁ h₂
-  -- h₁: zkpGetNonce zkp = nonce₁ ∧ ...
-  -- h₂: zkpGetNonce zkp = nonce₂ ∧ ...
-  have h_nonce₁ := h₁.1
-  have h_nonce₂ := h₂.1
+  -- h₁: zkpGetNonce zkp = nonce₁
+  -- h₂: zkpGetNonce zkp = nonce₂
   -- zkpGetNonce zkp は一意に定まる
   -- よって nonce₁ = nonce₂
-  rw [← h_nonce₁, h_nonce₂]
+  rw [← h₁, h₂]
 
 /-- Theorem: 相互防衛の成立（Mutual Defense）
 
@@ -422,14 +400,18 @@ theorem verifier_self_defense :
     **一意のナンスを発行した主体のみが自己防衛できる。**
 
     証明の構造（単方向プロトコル用）:
-    - Verifierが一意のnonceを発行 → different_sessions_have_different_nonces
-    - 元のセッション（session₁）のnonce₁と異なるセッション（session₂）のnonce₂は異なる
+    - 前提条件: 元のセッション（session₁）のnonce₁と異なるセッション（session₂）のnonce₂は異なる
     - ZKPはnonce₁に束縛されている → nonce₂での検証は失敗
     - **責任**: Verifierは一意なnonceを生成する責任がある
 
     もしVerifierがnonceを重複させた場合（nonce_reuse_enables_replay_attack）:
-    - リプレイ攻撃が成立してしまう
+    - この定理の前提条件が成立しないため、リプレイ攻撃が成立してしまう
     - **これはVerifierの責任であり、プロトコルの責任範囲外**
+
+    **条件付き安全性:**
+    - プロトコルは「一意なnonceを発行すれば安全」という保証を提供
+    - プロトコルは「必ず一意なnonceが発行される」ことは保証しない
+    - 一意性の確保は実装者の自己責任
 -/
 theorem replay_attack_prevented_by_unique_nonce_generator :
   ∀ (attack : ReplayAttack) (history : NonceHistory),
@@ -465,16 +447,19 @@ theorem replay_attack_prevented_by_unique_nonce_generator :
 /-- Theorem: リプレイ攻撃耐性は一意なナンス発行に依存する（条件付き安全性）
 
     **プロトコルの安全性保証:**
-    different_sessions_have_different_nonces公理が成立する場合のみ、
+    異なるセッションで異なるnonceを使用している場合のみ、
     リプレイ攻撃は防がれる。
 
     **責任の所在:**
     - Verifier実装者: 一意なnonceを生成する責任
-    - もし重複したnonceを発行すれば、リプレイ攻撃が成立する（自己責任）
+    - もし重複したnonceを発行すれば、この定理の前提条件が成立せず、
+      リプレイ攻撃が成立する（自己責任）
     - プロトコルは「一意なnonceを発行すれば安全」という保証を提供するが、
       「必ず一意なnonceが発行される」ことは保証しない
 
-    これは「安全なブラウザを選ぶのはユーザーの責任」と同じ設計思想。
+    **設計思想:**
+    「安全な実装を選ぶのはユーザー/実装者の責任」という原則。
+    プロトコルは手段を提供するが、実装品質は保証しない。
 -/
 theorem replay_attack_resistance_conditional :
   ∀ (attack : ReplayAttack) (history : NonceHistory),
@@ -494,10 +479,10 @@ theorem replay_attack_resistance_conditional :
 /-- Theorem: 同じnonceの使いまわしによるリプレイ攻撃の成立
 
     同じVerifierが異なるセッションで同じnonceを使用すると、リプレイ攻撃が成立してしまう。
-    これは、辞書モデルにより明確に説明できる：
+    これは、ZKPの構造的性質により明確に説明できる：
     - session₁とsession₂で同じnonceを使用
-    - zkpはnonceToProofDict(nonce)に含まれる
-    - 両方のセッションで zkp ∈ nonceToProofDict(nonce) が成立
+    - zkpはzkpGetNonce(zkp) = nonceを満たす
+    - 両方のセッションで nonceIsBoundToZKP nonce zkp が成立
     - よって両方のセッションでzkpが検証に成功する（リプレイ攻撃成立）
 
     **設計への教訓**: Verifierは各セッションで一意な新しいnonceを生成しなければならない。
@@ -596,15 +581,11 @@ theorem zkp_is_single_use_if_unique_nonce :
     ¬verifierChecksNonce session₂ zkp history := by
   intro zkp session₁ session₂ history h_diff_nonce h_diff_session h_session₁
 
-  -- ZKPから構造的にHolderを取得（ZKP = {nonce, statement, holder}）
-  let holder := zkpGetHolder zkp
-
   -- 任意のTimestampを選ぶ（0でよい）
   let someTimestamp : Timestamp := ⟨0⟩
 
-  -- ZKPPresentationを構成
+  -- ZKPPresentationを構成（Holderフィールドは不要）
   let presentation : ZKPPresentation := {
-    holder := holder,
     session := session₁,
     zkp := zkp,
     presentedAt := someTimestamp
@@ -624,12 +605,12 @@ theorem zkp_is_single_use_if_unique_nonce :
 
 /-- 実装要件: リプレイ攻撃耐性の保証
 
-    辞書モデル `{nonce_x: Proof[]}` を実現するため、実装は以下を保証する：
+    ZKPの構造的性質を実現するため、実装は以下を保証する：
 
     **相互認証プロトコルにおける二重ナンス束縛（Dual Nonce Binding）:**
 
     相互認証プロトコル（MutualAuthentication.lean）では、ZKPは両方のナンスに束縛される：
-    - ZKP構造: {(nonce1, nonce2), statement, holder}
+    - ZKP構造: {(nonce1, nonce2), statement}
     - 実装: publicInput.data = serialize(claims) || nonce1.value || nonce2.value
     - どちらか一方が一意なら、ペア全体が一意 → 相互防衛が成立
 
@@ -692,27 +673,13 @@ theorem zkp_is_single_use_if_unique_nonce :
 
     **セキュリティ保証:**
     - 異なるセッション → 異なるnonce2 → 異なるペア (nonce1, nonce2)
-    - zkp ∈ nonceToProofDict(nonce₁) かつ zkp ∉ nonceToProofDict(nonce₂)
+    - zkpGetNoncePair(zkp) = (nonce₁, nonce₁') かつ (nonce₁, nonce₁') ≠ (nonce₂, nonce₂')
     - よってリプレイ攻撃は必ず失敗する（replay_attack_resistance）
     - 相互防衛により、片方のバグがあっても保護される（mutual_defense_property）
-
-    **アンチパターン（やってはいけないこと）:**
-    ❌ Verifierが同じnonceを複数セッションで使いまわす
-       → nonce_reuse_enables_replay_attack により攻撃が成立
-       → **プロトコル違反**（ただし、Holderが一意なnonce1を使えば自己防衛可能）
-    ❌ nonceの新鮮性チェックを省略
-       → 同じZKPが複数回使用可能になる
-       → **プロトコル違反**
-    ❌ 予測可能なnonceを使用（例: カウンタ値）
-       → 攻撃者が事前にZKPを生成可能
-       → **プロトコル違反**
-    ❌ 二重ナンス束縛を実装しない（単一nonceのみ使用）
-       → 相互防衛が機能せず、片方のバグが全体の脆弱性になる
-       → **設計上の欠陥**
 -/
 def implementationRequirements : String :=
   "Dual Nonce Binding in Mutual Authentication:
-   ZKP = {(nonce1, nonce2), statement, holder}
+   ZKP = {(nonce1, nonce2), statement}
    Implementation: publicInput = serialize(claims) || nonce1 || nonce2
 
    Mutual Defense Property (mutual_defense_property):

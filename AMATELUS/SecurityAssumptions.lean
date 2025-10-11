@@ -467,18 +467,6 @@ theorem keyPairIndependence_quantum_secure :
   keyPairIndependenceSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   decide  -- 128 ≥ 128
 
-/-- 鍵ペアの独立性（従来の抽象的な形式）
-
-    **注意:** この定理は互換性のために提供されています。
-    新しいコードでは `keyPairIndependence_quantum_secure` を使用してください。
--/
-axiom keyPairIndependence : ∀ (kp₁ kp₂ : KeyPair) (A : PPTAlgorithm),
-  kp₁ ≠ kp₂ →
-  Negligible (fun _n _adv =>
-    -- 鍵ペア間の関連性を発見する確率（量子脅威下でも128ビット）
-    false
-  )
-
 -- ## ナンス（nonce）の一意性
 
 /-- ナンス衝突の計算コスト
@@ -502,18 +490,3 @@ def nonceCollisionSecurity : ComputationalSecurityLevel := {
 theorem nonceUniqueness_quantum_secure :
   nonceCollisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   decide  -- 128 ≥ 128
-
-/-- ナンスの一意性（従来の抽象的な形式）
-
-    **注意:** この定理は互換性のために提供されています。
-    新しいコードでは `nonceUniqueness_quantum_secure` を使用してください。
-
-    **背景:**
-    256ビットのランダムナンスを使用する場合、衝突確率は2^(-128)であり、
-    量子計算機を用いても改善されません（誕生日攻撃はGroverで改善されない）。
--/
-axiom nonceUniqueness : ∀ (n₁ n₂ : List UInt8),
-  Negligible (fun _n _adv =>
-    -- Pr[n₁ = n₂ ∧ n₁, n₂ are independently generated]
-    false
-  )

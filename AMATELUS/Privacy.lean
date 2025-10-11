@@ -301,7 +301,7 @@ theorem zkp_no_information_leakage :
 
     **安全性保証:**
     これらの保証は、具体的な攻撃成功確率（最大 2^{-128}）に基づいており、
-    理論的な「negligible」ではなく、暗号強度に依存した確率的保証である。
+    暗号強度に依存した確率的保証である。
 -/
 def ComprehensivePrivacy (did₁ did₂ : DID) (service₁ service₂ : Service) (trace : ProtocolTrace) : Prop :=
   -- DID間の名寄せには暗号的計算コストが必要（traceから名寄せ）

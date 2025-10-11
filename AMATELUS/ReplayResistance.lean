@@ -626,7 +626,6 @@ theorem zkp_is_single_use_if_unique_nonce :
 
     1. 各セッションで暗号学的にランダムな一意のnonce（nonce2）を生成
        - セキュアな乱数生成器を使用（/dev/urandom, crypto.randomBytes等）
-       - nonceの衝突確率を negligible にする（例: 256-bit nonce）
        - **理由**: 従来はHolder（一般市民）を保護する責任があったが、
                    二重ナンス束縛により、Verifier自身の自己防衛にもなる
        - **責任**: プロトコル設計者・Verifier実装者

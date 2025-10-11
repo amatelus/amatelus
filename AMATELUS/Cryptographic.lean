@@ -185,8 +185,7 @@ theorem core_safety_independence :
 
     **AMATELUSの安全性保証:**
     AMATELUSの安全性は、この具体的な計算コストにのみ依存します。
-    "negligible" という抽象的な概念ではなく、量子計算機でも2^128の試行が必要という
-    具体的な数値により保証されます。
+    量子計算機でも2^128の試行が必要という具体的な数値により保証されます。
 -/
 theorem hash_uniqueness_quantum_secure :
   amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by

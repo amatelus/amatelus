@@ -252,15 +252,13 @@ def serializeDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
 
     **実装:**
     1. ValidDIDDocumentをバイト列にシリアライズ
-    2. SHA3-512でハッシュ化（hashForDID）
+    2. SHA3-512でハッシュ化
     3. ハッシュ値を持つValidDIDを構築
 -/
 noncomputable def validDIDDocumentToDID (doc : ValidDIDDocument) : ValidDID :=
   { hash := hashForDID (serializeDIDDocument doc) }
 
 -- ## ハッシュ関数
--- hashForDID と hashForDID_collision_negligible は
--- AMATELUS.SecurityAssumptionsで定義されています。
 
 namespace DID
 

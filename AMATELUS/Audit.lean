@@ -18,9 +18,6 @@ import AMATELUS.SecurityAssumptions
     - 原像攻撃の量子コスト: 256ビット
     - NIST最小要件: 128ビット
     - 結論: 十分安全（256 ≥ 128）
-
-    **注意:**
-    抽象的な「Negligible」ではなく、具体的な計算コスト比較により安全性を保証します。
 -/
 theorem ahi_one_way_protection_quantum_secure :
   hashPreimageSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
@@ -46,7 +43,6 @@ def audit_section_entropy_exponent : Nat := 8
 
     **安全性の根拠:**
     - 攻撃者が監査区分識別子を推測する確率: 1 / 2^256
-    - これはnegligibleな確率であり、実質的に不可能
 
     **ポスト量子暗号（PQC）での安全性:**
     - Groverのアルゴリズム適用後も 2^128 の検索空間

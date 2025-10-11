@@ -156,18 +156,25 @@ ZKP_Requirements := {
 
 ### 2.2 セキュリティパラメータと仮定
 
-- `λ`: セキュリティパラメータ
-- `negl(λ)`: negligible function
+- `λ`: セキュリティパラメータ（NIST最小要件: 量子脅威下で128ビット）
 - `PPT`: probabilistic polynomial-time
 
 **Assumption 2.1 (Collision-Resistant Hash Function)**
 ```
-∀ PPT adversary A: Pr[H(x) = H(x') ∧ x ≠ x' : (x, x') ← A(1^λ)] ≤ negl(λ)
+SHA3-512の衝突探索コスト（量子脅威下）: 128ビット ≥ 128ビット（NIST最小要件）
+
+∀ PPT adversary A:
+  衝突発見 (H(x) = H(x') ∧ x ≠ x') には、
+  量子計算機でも2^128の計算量が必要
 ```
 
 **Assumption 2.2 (Unforgeable Digital Signature)**
 ```
-∀ PPT adversary A: Pr[Verify(m, σ, pk) = 1 ∧ m ∉ Q : (m, σ) ← A^{Sign(sk,·)}(pk)] ≤ negl(λ)
+Dilithium2の署名偽造コスト（量子脅威下）: 128ビット ≥ 128ビット（NIST最小要件）
+
+∀ PPT adversary A:
+  署名偽造 (Verify(m, σ, pk) = 1 ∧ m ∉ Q) には、
+  量子計算機でも2^128の計算量が必要
 ```
 ここで、`Q`は署名クエリ集合である。
 
@@ -214,14 +221,16 @@ AMATELUSのDID検証プロセスは以下で完結する：
 デジタル署名方式の完全性（correctness）により直接導かれる。∎
 
 **Theorem 3.4 (VC Signature Soundness)**
-偽造されたVCの署名検証は negligible な確率でのみ成功する：
+偽造されたVCの署名検証は計算量的に困難である：
 ```
-∀ PPT adversary A: Pr[Verify(VC*, σ*, pk) = 1 ∧ VC* ∉ Q] ≤ negl(λ)
+∀ PPT adversary A:
+  VC署名偽造 (Verify(VC*, σ*, pk) = 1 ∧ VC* ∉ Q) には、
+  量子計算機でも2^128の計算量が必要（Dilithium2）
 ```
 ここで、`(VC*, σ*) ← A^{Sign(sk,·)}(pk)`、`Q`は署名クエリ集合である。
 
 **Proof:**
-Assumption 2.2（偽造不可能デジタル署名）により直接導かれる。∎
+Assumption 2.2（Dilithium2の署名偽造コスト: 量子脅威下で128ビット）により直接導かれる。∎
 
 **Theorem 3.5 (Revocation-Independent Protocol Safety)**
 失効リスト不在時のプロトコル安全性：
@@ -356,17 +365,17 @@ VC発行者（トラストアンカーまたは受託者）が侵害された場
 ```
 ∀ DID₁, DID₂, Service₁, Service₂:
 (Service₁ ≠ Service₂) ∧ UsedIn(DID₁, Service₁) ∧ UsedIn(DID₂, Service₂) ⟹
-Pr[Link(DID₁, DID₂)] ≤ negl(λ)
+Link(DID₁, DID₂) には量子計算機でも2^128の計算量が必要
 ```
 
 **Proof:**
 各DIDは独立した鍵ペアから生成され、DIDドキュメントには所有者の識別可能情報が含まれない。したがって、DID₁とDID₂の関連付けには以下のいずれかが必要：
 
-1. 鍵ペアの関連性の発見：独立した鍵生成により negligible
+1. 鍵ペアの関連性の発見：独立した鍵生成により計算量的に困難（2^128）
 2. 外部情報による関連付け：プロトコルの範囲外
-3. 暗号的関連付け：使用する暗号プリミティブの安全性により negligible
+3. 暗号的関連付け：SHA3-512の衝突発見に量子計算機でも2^128の計算量が必要
 
-よって、`Pr[Link(DID₁, DID₂)] ≤ negl(λ)`∎
+よって、異なるDIDの名寄せは計算量的に困難である（量子脅威下で128ビット）。∎
 
 **Note 5.2 (Multiple DID Design Intent)**
 複数DIDの保有は、AMATELUSの設計における意図的な特徴である。これは不正行為（Sybil攻撃）ではなく、プライバシー保護を最大化するための正当な設計選択である。
@@ -392,23 +401,23 @@ AMATELUSで使用されるZKPは零知識性を満たす：
 ```
 ∀ PPT adversary A, AHI = H(AuditSectionID || NationalID):
 ¬(Know(A, AuditSectionID) ∧ Know(A, NationalID)) ⟹
-Pr[A(AHI) → NationalID] ≤ negl(λ)
+復元 (A(AHI) → NationalID) には量子計算機でも2^256の計算量が必要
 ```
 
 **Proof:**
 攻撃者が成功するためには、以下のいずれかが必要：
 
-1. ハッシュ関数の逆関数計算：一方向性により negligible
-2. 総当たり攻撃：`AuditSectionID`が未知の場合、検索空間は指数的
+1. ハッシュ関数の原像攻撃：SHA3-512の原像攻撃コスト（量子脅威下）は256ビット
+2. 総当たり攻撃：`AuditSectionID`が未知の場合、検索空間は2^256
 3. 側面攻撃：プロトコルの範囲外
 
-Case 1: ハッシュ関数の一方向性により`Pr[A(AHI) → input] ≤ negl(λ)`
+Case 1: SHA3-512の原像攻撃コスト（量子脅威下）は256ビット ≥ 128ビット（NIST最小要件）
 
-Case 2: `AuditSectionID`のエントロピーを`k`ビットとすると、
+Case 2: `AuditSectionID`のエントロピーを256ビットとすると、
 ```
-Pr[A finds correct (AuditSectionID, NationalID)] ≤ 2^{-k} + negl(λ)
+総当たり攻撃コスト（量子脅威下）: 2^128 ≥ 2^128（NIST最小要件）
 ```
-適切な`k`選択により negligible∎
+適切なエントロピー（256ビット）選択により、量子計算機でも十分な安全性を保証∎
 
 ### 6.2 監査区分間の名寄せ防止
 
@@ -416,16 +425,19 @@ Pr[A finds correct (AuditSectionID, NationalID)] ≤ 2^{-k} + negl(λ)
 異なる監査区分で生成された匿名ハッシュ識別子は計算量的に独立である：
 ```
 ∀ AuditID₁, AuditID₂, NationalID: AuditID₁ ≠ AuditID₂ ⟹
-H(AuditID₁ || NationalID) ⊥_c H(AuditID₂ || NationalID)
+H(AuditID₁ || NationalID) と H(AuditID₂ || NationalID) の関連付けには、
+量子計算機でも2^256の計算量が必要（SHA3-512のランダムオラクル性）
 ```
-ここで、`⊥_c`は計算量的独立性を表す。
 
 **Proof:**
-ハッシュ関数のランダムオラクル性により、異なる入力に対するハッシュ値は計算量的に独立である。具体的に、識別子`ID₁ ≠ ID₂`に対して：
+SHA3-512のランダムオラクル性により、異なる入力に対するハッシュ値は計算量的に独立である。具体的に、識別子`ID₁ ≠ ID₂`に対して：
 ```
-|Pr[f(H(ID₁ || NationalID), H(ID₂ || NationalID)) = 1] - Pr[f(R₁, R₂) = 1]| ≤ negl(λ)
+SHA3-512のランダムオラクル識別攻撃コスト（量子脅威下）: 256ビット ≥ 128ビット（NIST最小要件）
+
+判定器 f が H(ID₁ || NationalID) と H(ID₂ || NationalID) を区別するには、
+量子計算機でも2^256の計算量が必要
 ```
-ここで、`f`は任意のPPT判定器、`R₁, R₂`は独立な一様ランダム値である。∎
+ここで、`f`は任意のPPT判定器である。したがって、異なる監査区分間での名寄せは計算量的に困難である。∎
 
 ## 7. プロトコル全体の一貫性と脆弱性の限定性
 

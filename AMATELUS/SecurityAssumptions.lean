@@ -39,19 +39,6 @@ def securityParameter : Nat := 2 ^ securityParameterExponent
 /-- セキュリティパラメータが256であることの補助定理 -/
 theorem securityParameter_eq_256 : securityParameter = 256 := rfl
 
-/-- Negligible関数（古いモデル - 量子脅威を考慮していない）
-
-    **非推奨:**
-    この定義は抽象的すぎて、量子計算機の脅威を考慮していません。
-    新しいコードでは`ComputationalSecurityLevel`を使用してください。
-
-    **互換性:**
-    既存のコード（署名方式、ZKPなど）との互換性のために残されています。
--/
-def Negligible (f : Nat → Nat → Bool) : Prop :=
-  ∀ c : Nat, c > 0 → ∃ n₀ : Nat, ∀ n ≥ n₀, ∀ adv : Nat,
-    f n adv = false
-
 /-- PPT (Probabilistic Polynomial Time) アルゴリズム -/
 structure PPTAlgorithm where
   timeComplexity : Nat → Nat
@@ -263,29 +250,6 @@ theorem amatSignature_forgery_quantum_secure :
   amatSignature.forgeryResistance.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
   exact amatSignature.quantum_secure
-
-/-- 署名方式の健全性（従来の抽象的な形式）
-
-    **注意:** この定理は互換性のために提供されています。
-    新しいコードでは `amatSignature_forgery_quantum_secure` を使用してください。
-
-    **背景:**
-    抽象的な "negligible" ではなく、具体的な計算コストで安全性を評価すべきです。
-    量子計算機の脅威を考慮すると、Dilithium2の署名偽造には2^128の計算量が必要であり、
-    これは実用的に不可能です。
--/
-theorem amatSignature_soundness :
-  ∀ (_A : PPTAlgorithm) (_kp : KeyPair),
-    Negligible (fun _n _adv =>
-      -- Pr[Verify(m, σ, pk) = 1 ∧ m ∉ Q]
-      false  -- 量子脅威下でも偽造は困難
-    ) := by
-  intro _A _kp
-  -- amatSignature_forgery_quantum_secureにより、量子脅威下でも安全
-  -- したがって、古典的にも安全（Negligible）
-  unfold Negligible
-  intro c _h_c_pos
-  refine ⟨0, fun _n _h_n_ge _adv => rfl⟩
 
 -- ## ハッシュ関数の一方向性（計算コストモデル）
 

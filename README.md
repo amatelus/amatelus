@@ -262,7 +262,7 @@ ValidTrustRelation(A, B) := DirectTrust(A, B)
 
 **設計根拠:**
 - **セキュリティ向上**: PKI的な複雑性を排除し、委譲チェーン攻撃を原理的に防止
-- **形式検証の簡潔性**: 循環検出が不要（1階層では循環が数学的に不可能）
+- **形式検証の簡潔性**: 1階層制限により循環検出が不要（2階層以上のVCは検証対象外）
 - **W3C準拠**: W3C VCは推移的信頼を推奨しておらず、1階層制限はW3C思想に近い
 - **実用性**: 政府が直接委託した認定事業者のみを信頼する運用モデルは実務上十分
 
@@ -273,24 +273,30 @@ ValidTrustRelation(A, B) := DirectTrust(A, B)
   ValidChain(chain) → chain.length ≤ 1
 ```
 
-**Theorem 4.3 (Cycle Impossibility)**
-1階層制限により、信頼チェーンに循環が発生しないことが数学的に保証される：
+**Theorem 4.3 (AMATELUS Protocol Verification Limit)**
+AMATELUSプロトコルは、1階層のVCのみを検証する：
 ```
-∀ chain: List TrustRelation,
-  ValidChain(chain) →
-  chain.length ≤ 1 →
-  NoCycle(chain)
+∀ wallet: Wallet, vc: VerifiableCredential, issuerDID: DID,
+  VerifiableCredential.isValid vc →
+  VerifiableCredential.getIssuer vc = issuerDID →
+  -- AMATELUSプロトコルが受け入れる場合、発行者は1階層の信頼関係にある
+  (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome ∨
+  (∃ anchorDID, issuerDID ∈ (lookup wallet.trustedAnchors anchorDID).trustees)
 ```
 
-**Proof:**
-循環 `A → B → A` は最低2階層必要であるため、1階層制限下では循環が原理的に不可能である。∎
+**重要な設計思想:**
+- 2階層以上のVC（受託者による再委譲等）や循環VCは**技術的には存在し得る**
+- しかし、AMATELUSプロトコルはこれらを**検証しない**
+- これは数学的不可能性ではなく、**プロトコルルール**である
+- 2階層以上のVCを信頼するかは各検証者の自由だが、AMATELUSの安全性保証は1階層のみに適用される∎
 
 **セキュリティ上の利点:**
-1. **委譲攻撃の排除**: 中間者が無制限に権限を再委譲することが不可能
+1. **委譲攻撃の防止**: AMATELUSプロトコルは、中間者による無制限な権限再委譲VCを検証しない
 2. **失効伝播の単純化**: 失効チェックが最大2ステップ（ルート＋1階層）で完結
 3. **計算量攻撃耐性**: 検証時間の上限が保証され、DoS攻撃に強い
 4. **時間依存性の軽減**: 時刻窓の検証がO(n)からO(2)に削減
 5. **単一障害点の影響縮小**: ルート侵害でも1階層のみに影響が限定
+6. **自己責任の明確化**: 2階層以上のVCを信頼するかは各検証者の判断（AMATELUSの安全性保証外）
 
 ### 4.2 信頼検証プロセス
 
@@ -573,10 +579,12 @@ Storage(n_users) = O(n_users)
 
 1. **暗号学的完全性**: DID、VC、ZKPの各メカニズムが暗号学的に安全である（Theorem 3.1-3.5, 5.3）
 
-2. **信頼連鎖の制限性**: 1階層制限により、PKI的脆弱性を排除し、安全性を数学的に保証する（Theorem 4.2, 4.3, 4.5）
-   - 委譲チェーン攻撃の原理的防止
-   - 循環の数学的不可能性
+2. **信頼連鎖の制限性**: 1階層制限により、AMATELUSプロトコルが検証するVCを制限し、安全性を保証する（Theorem 4.2, 4.3）
+   - AMATELUSは2階層以上のVCを検証しない（プロトコルルール）
+   - 委譲チェーン攻撃VCは検証を通過しない
+   - 循環VCも検証を通過しない
    - 失効伝播の単純化（O(1)複雑度）
+   - 注: 2階層以上のVCは技術的には存在し得るが、AMATELUSの安全性保証は1階層のみに適用
 
 3. **プライバシー保護の完全性**: 複数DID使用による名寄せ防止が情報理論的に証明された（Theorem 5.1）
 

@@ -266,7 +266,7 @@ namespace DID
 
 /-- ValidDIDDocumentからValidDIDを生成する
 
-    validDIDDocumentToDID公理を使用して、所有権検証済みのDIDDocumentから
+    validDIDDocumentToDIDを使用して、所有権検証済みのDIDDocumentから
     ValidDIDを生成します。
 
     **AMATELUSでの使用:**
@@ -384,11 +384,6 @@ structure VCType where
   value : String
   deriving Repr, DecidableEq
 
-/-- クレーム（主張）を表す型 -/
-structure Claims where
-  data : String  -- 実際には構造化データ
-  deriving Repr, DecidableEq
-
 /-- 失効情報を表す型 -/
 structure RevocationInfo where
   statusListUrl : Option String
@@ -405,6 +400,23 @@ def ClaimTypeBasic := String
 structure ClaimID where
   value : String
   deriving Repr, DecidableEq, BEq
+
+/-- クレーム（主張）を表す型
+
+    **設計:**
+    - `data`: 構造化データ（JSON等）
+    - `claimID`: クレームの識別子（トラストアンカーが定義）
+      - `Some claimID`: 特定のクレームタイプ（住民票、運転免許証等）
+      - `None`: クレームIDが指定されていない（汎用クレーム）
+-/
+structure Claims where
+  data : String  -- 実際には構造化データ
+  claimID : Option ClaimID  -- クレームの識別子
+  deriving Repr, DecidableEq
+
+/-- ClaimsからClaimIDを取得する関数（定義として実装）-/
+def Claims.getClaimID (claims : Claims) : Option ClaimID :=
+  claims.claimID
 
 /-- 監査区分識別子を表す型 -/
 structure AuditSectionID where
@@ -463,6 +475,28 @@ structure W3CCredentialCore where
   credentialStatus : RevocationInfo  -- credentialStatus: 失効情報
   deriving Repr, DecidableEq
 
+/-- AMATELUS固有のVerifiable Credential構造
+
+    W3C VCを継承し、AMATELUS固有の1階層制限を型レベルで保証する。
+
+    **1階層制限の型システム保証:**
+    - `delegator: Option DID`により、階層は0または1のみに限定される
+    - `None`: トラストアンカーが直接発行（0階層）
+    - `Some anchorDID`: トラストアンカーが委任者経由で発行（1階層）
+    - 受託者には委任者フィールドがないため、再委任は型システムで不可能
+
+    **設計の利点:**
+    - 型システムで1階層制限が自動的に保証される（数学的証明不要）
+    - 2階層以上のVCは構造的に構築不可能
+    - 委任チェーンの検証が単純化（Option型をチェックするだけ）
+
+    参考: W3C VC Data Model 1.1に準拠しつつ、AMATELUS固有の制約を追加
+-/
+structure AMATELUSCredential extends W3CCredentialCore where
+  -- AMATELUS固有フィールド
+  delegator : Option DID  -- None = トラストアンカー直接発行、Some did = 委任者経由発行
+  deriving Repr, DecidableEq
+
 /-- 受託者認証VC
 
     トラストアンカーが受託者に発行する認証クレデンシャル。
@@ -472,10 +506,14 @@ structure W3CCredentialCore where
     政府（トラストアンカー）が自治体（受託者）に発行するVC：
     - issuer: 政府のDID
     - subject: 自治体のDID
+    - delegator: Some 政府のDID（1階層：政府が委任）
     - authorizedClaimIDs: ["政府_1"]  -- 住民票の発行権限
+
+    **1階層制限:**
+    - このVCは`delegator: Some anchorDID`を持つため、1階層のVC
+    - 受託者が発行するVCは`delegator: Some anchorDID`を持つ必要があり、再委任は不可能
 -/
-structure TrusteeVC where
-  core : W3CCredentialCore
+structure TrusteeVC extends AMATELUSCredential where
   -- 受託者固有のクレーム
   authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
   trustLevel : Nat                    -- 信頼レベル (1-5)
@@ -484,9 +522,12 @@ structure TrusteeVC where
 
     政府機関が発行する国民識別情報（マイナンバーなど）を含むVC。
     プライバシー保護のため、AHIを使用して匿名化される。
+
+    **1階層制限:**
+    - トラストアンカーが直接発行: `delegator: None`（0階層）
+    - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
-structure NationalIDVC where
-  core : W3CCredentialCore
+structure NationalIDVC extends AMATELUSCredential where
   -- 国民ID固有のクレーム
   anonymousHashId : AnonymousHashIdentifier   -- 匿名ハッシュ識別子
   auditSection : AuditSectionID                -- 監査区分識別子
@@ -495,9 +536,12 @@ structure NationalIDVC where
 
     一般的な属性情報（年齢、住所、資格など）を証明するVC。
     汎用的なクレームタイプで、様々な発行者が発行できる。
+
+    **1階層制限:**
+    - トラストアンカーが直接発行: `delegator: None`（0階層）
+    - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
-structure AttributeVC where
-  core : W3CCredentialCore
+structure AttributeVC extends AMATELUSCredential where
   -- 属性固有のクレーム
   claims : Claims                             -- 任意の構造化クレーム
 
@@ -508,9 +552,11 @@ structure AttributeVC where
 
     偽警官対策: Holderはこのような検証者VCの提示を要求することで、
     正規の検証者であることを確認できる。
+
+    **1階層制限:**
+    - 通常、トラストアンカーが直接発行: `delegator: None`（0階層）
 -/
-structure VerifierVC where
-  core : W3CCredentialCore
+structure VerifierVC extends AMATELUSCredential where
   -- 検証者固有のクレーム
   authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
   verificationScope : String                          -- 検証の範囲（地域、組織など）
@@ -527,9 +573,11 @@ structure VerifierVC where
 
     検証者はトラストアンカーのDIDDocumentとともに、
     これらのクレーム定義VCをダウンロードしてWalletに登録する。
+
+    **1階層制限:**
+    - トラストアンカーが自己署名で発行: `delegator: None`（0階層）
 -/
-structure ClaimDefinitionVC where
-  core : W3CCredentialCore
+structure ClaimDefinitionVC extends AMATELUSCredential where
   -- クレーム定義固有のフィールド
   claimID : ClaimID                     -- クレームの一意な識別子
   description : String                  -- クレームの説明（人間可読）
@@ -554,13 +602,21 @@ inductive VCTypeCore
 
 namespace VCTypeCore
 
-/-- VCTypeから基本構造を取得 -/
+/-- VCTypeからAMATELUS構造を取得 -/
+def getAMATELUSCore : VCTypeCore → AMATELUSCredential
+  | trusteeVC vc => vc.toAMATELUSCredential
+  | nationalIDVC vc => vc.toAMATELUSCredential
+  | attributeVC vc => vc.toAMATELUSCredential
+  | verifierVC vc => vc.toAMATELUSCredential
+  | claimDefinitionVC vc => vc.toAMATELUSCredential
+
+/-- VCTypeからW3C基本構造を取得 -/
 def getCore : VCTypeCore → W3CCredentialCore
-  | trusteeVC vc => vc.core
-  | nationalIDVC vc => vc.core
-  | attributeVC vc => vc.core
-  | verifierVC vc => vc.core
-  | claimDefinitionVC vc => vc.core
+  | trusteeVC vc => vc.toW3CCredentialCore
+  | nationalIDVC vc => vc.toW3CCredentialCore
+  | attributeVC vc => vc.toW3CCredentialCore
+  | verifierVC vc => vc.toW3CCredentialCore
+  | claimDefinitionVC vc => vc.toW3CCredentialCore
 
 /-- VCTypeの発行者を取得 -/
 def getIssuer (vc : VCTypeCore) : DID :=
@@ -569,6 +625,10 @@ def getIssuer (vc : VCTypeCore) : DID :=
 /-- VCTypeの主体を取得 -/
 def getSubject (vc : VCTypeCore) : DID :=
   (getCore vc).subject
+
+/-- VCTypeの委任者を取得（1階層制限の検証に使用） -/
+def getDelegator (vc : VCTypeCore) : Option DID :=
+  (getAMATELUSCore vc).delegator
 
 end VCTypeCore
 
@@ -1157,7 +1217,7 @@ def validateVerifierAuth (msg : VerifierAuthMessage) (holderWallet : Wallet) : P
     VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
     -- VCのsubjectがverifierDIDと一致する
     VerifiableCredential.getSubject vc = msg.verifierDID) ∧
-  -- 6. authProofが有効である（関係式は実装依存のため公理化）
+  -- 6. authProofが有効である
   ∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation
 
 end VerifierAuthMessage

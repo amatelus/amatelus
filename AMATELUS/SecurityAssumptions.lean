@@ -106,7 +106,7 @@ def minSecurityLevel : ComputationalSecurityLevel := {
 
 /-- 確率的衝突安全性を持つハッシュ関数
 
-    公理に依存せず、具体的な計算コストをパラメータとして持つハッシュ関数モデル。
+    具体的な計算コストをパラメータとして持つハッシュ関数モデル。
     AMATELUSのセキュリティは、この具体的な計算コストにのみ依存する。
 -/
 structure ProbabilisticHashFunction where

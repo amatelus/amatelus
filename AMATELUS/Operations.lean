@@ -9,14 +9,6 @@ import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.TrustChain
 
--- ## Wallet操作の公理
-
-/-- Walletが秘密鍵を安全に保護していることの公理 -/
-axiom wallet_secret_key_protection :
-  ∀ (_w : Wallet) (_A : PPTAlgorithm),
-    -- 外部からはWallet内の秘密鍵にアクセスできない
-    Negligible (fun _n _adv => false)
-
 -- ## Holder操作
 
 namespace Holder
@@ -97,13 +89,13 @@ axiom sign : SecretKey → (Claims × DID) → Signature
     ここでは公理として宣言する。
 -/
 axiom issueCredential :
-    ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims),
-    Authorized issuer claims →
-    (∃ (authorizedTypes : List ClaimType),
-      (match issuer with
-       | Issuer.trustAnchor ta => ta.authorizedClaimTypes = authorizedTypes
-       | Issuer.trustee t => t.authorizedClaimTypes = authorizedTypes) ∧
-      getClaimType claims ∈ authorizedTypes) →
+    ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims) (claimID : ClaimID),
+    -- 発行者がこのClaimIDを発行する権限を持つ
+    (match issuer with
+     | Issuer.trustAnchor ta => claimID ∈ ta.authorizedClaimIDs
+     | Issuer.trustee t => claimID ∈ t.authorizedClaimIDs) →
+    -- ClaimsにこのClaimIDが含まれる
+    getClaimID claims = some claimID →
     VerifiableCredential
 
 end Issuer
@@ -199,13 +191,11 @@ axiom holder_store_preserves_validity :
     署名関数の実装が公理化されているため、ここでは公理として宣言する。
 -/
 axiom issued_credential_is_valid :
-  ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims) (vc : VerifiableCredential)
-    (_h_authorized : Authorized issuer claims)
-    (_h_claimType : ∃ (authorizedTypes : List ClaimType),
-      (match issuer with
-       | Issuer.trustAnchor ta => ta.authorizedClaimTypes = authorizedTypes
-       | Issuer.trustee t => t.authorizedClaimTypes = authorizedTypes) ∧
-      getClaimType claims ∈ authorizedTypes),
+  ∀ (issuer : Issuer) (_holder : Holder) (claims : Claims) (vc : VerifiableCredential) (claimID : ClaimID)
+    (_h_authorized : match issuer with
+     | Issuer.trustAnchor ta => claimID ∈ ta.authorizedClaimIDs
+     | Issuer.trustee t => claimID ∈ t.authorizedClaimIDs)
+    (_h_claimID : getClaimID claims = some claimID),
     -- vcがissueCredentialによって生成されたVCであるという前提の下で
     VerifiableCredential.isValid vc
 

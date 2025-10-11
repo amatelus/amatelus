@@ -397,6 +397,15 @@ structure RevocationInfo where
 /-- クレームタイプを表す型 -/
 def ClaimTypeBasic := String
 
+/-- クレーム識別子を表す型
+
+    トラストアンカーが定義するクレームの一意な識別子。
+    例: "政府_1" (住民票), "政府_2" (運転免許証)
+-/
+structure ClaimID where
+  value : String
+  deriving Repr, DecidableEq, BEq
+
 /-- 監査区分識別子を表す型 -/
 structure AuditSectionID where
   value : List UInt8
@@ -457,13 +466,19 @@ structure W3CCredentialCore where
 /-- 受託者認証VC
 
     トラストアンカーが受託者に発行する認証クレデンシャル。
-    受託者が特定のクレームタイプを発行する権限を持つことを証明する。
+    受託者が特定のクレームIDを発行する権限を持つことを証明する。
+
+    **使用例:**
+    政府（トラストアンカー）が自治体（受託者）に発行するVC：
+    - issuer: 政府のDID
+    - subject: 自治体のDID
+    - authorizedClaimIDs: ["政府_1"]  -- 住民票の発行権限
 -/
 structure TrusteeVC where
   core : W3CCredentialCore
   -- 受託者固有のクレーム
-  authorizedClaimTypes : List ClaimTypeBasic  -- 発行可能なクレームタイプ
-  trustLevel : Nat                             -- 信頼レベル (1-5)
+  authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
+  trustLevel : Nat                    -- 信頼レベル (1-5)
 
 /-- 国民識別情報VC
 
@@ -500,6 +515,26 @@ structure VerifierVC where
   authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
   verificationScope : String                          -- 検証の範囲（地域、組織など）
 
+/-- クレーム定義VC
+
+    トラストアンカーが自己署名で公開するクレーム定義。
+    クレームIDとその意味を定義する。
+
+    **使用例:**
+    政府（トラストアンカー）が以下のようなクレーム定義VCを公開：
+    - ClaimID: "政府_1", Description: "住民票", Schema: {...}
+    - ClaimID: "政府_2", Description: "運転免許証", Schema: {...}
+
+    検証者はトラストアンカーのDIDDocumentとともに、
+    これらのクレーム定義VCをダウンロードしてWalletに登録する。
+-/
+structure ClaimDefinitionVC where
+  core : W3CCredentialCore
+  -- クレーム定義固有のフィールド
+  claimID : ClaimID                     -- クレームの一意な識別子
+  description : String                  -- クレームの説明（人間可読）
+  schema : String                       -- クレームのスキーマ（JSON Schema等）
+
 /-- VCタイプの基本構造（型のみ）
 
     すべての具体的なVCタイプの和型。
@@ -508,12 +543,14 @@ structure VerifierVC where
     - NationalIDVC: 国民識別情報
     - AttributeVC: 一般属性情報
     - VerifierVC: 検証者認証
+    - ClaimDefinitionVC: クレーム定義（トラストアンカーが自己署名で公開）
 -/
 inductive VCTypeCore
   | trusteeVC : TrusteeVC → VCTypeCore
   | nationalIDVC : NationalIDVC → VCTypeCore
   | attributeVC : AttributeVC → VCTypeCore
   | verifierVC : VerifierVC → VCTypeCore
+  | claimDefinitionVC : ClaimDefinitionVC → VCTypeCore
 
 namespace VCTypeCore
 
@@ -523,6 +560,7 @@ def getCore : VCTypeCore → W3CCredentialCore
   | nationalIDVC vc => vc.core
   | attributeVC vc => vc.core
   | verifierVC vc => vc.core
+  | claimDefinitionVC vc => vc.core
 
 /-- VCTypeの発行者を取得 -/
 def getIssuer (vc : VCTypeCore) : DID :=
@@ -688,11 +726,16 @@ structure W3CZKProofCore where
     Verifierが自身の正当性を証明するためのZKP。
     "私（verifierDID）は、信頼できるトラストアンカーから
     発行されたVerifierVCを保持している"ことを証明。
+
+    **双方向ナンス:**
+    challengeNonceは実際には双方のナンスの組み合わせを含む。
+    AMATELUSでは、HolderとVerifierの双方がナンスを生成し、
+    どちらか一方のWalletにバグがあっても保護される設計。
 -/
 structure VerifierAuthZKPCore where
   core : W3CZKProofCore
   verifierDID : DID           -- 証明者（Verifier）のDID
-  challengeNonce : Nonce      -- Holderが発行したチャレンジnonce
+  challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
   credentialType : String     -- 証明対象のVC種類（"VerifierVC"など）
 
 /-- Holder資格証明用ZKPの基本構造
@@ -700,11 +743,21 @@ structure VerifierAuthZKPCore where
     Holderが特定の属性を証明するためのZKP。
     "私は特定の属性を満たすVCを保持している"ことを証明。
     例: "私は20歳以上である"、"私は運転免許を持っている"など
+
+    **双方向ナンス:**
+    challengeNonceは双方のナンスの組み合わせを含む。
+    - Holderが nonce_holder を生成してVerifierに送信
+    - Verifierが nonce_verifier を生成してHolderに送信
+    - challengeNonce = H(nonce_holder || nonce_verifier)
+
+    この設計により、どちらか一方のWalletにバグがあっても、
+    もう一方のランダムネスにより保護される。
+    「他人のWalletバグから被害を受けない」設計原則を保証。
 -/
 structure HolderCredentialZKPCore where
   core : W3CZKProofCore
   holderDID : DID             -- 証明者（Holder）のDID
-  challengeNonce : Nonce      -- Verifierが発行したチャレンジnonce
+  challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
   claimedAttributes : String  -- 証明する属性の記述
 
 /-- VerifierAuthZKPの型エイリアス（MutualAuthenticationで使用） -/
@@ -895,10 +948,12 @@ structure RootAuthorityCertificate where
     トラストアンカーに関連する情報を保持する。
     - didDocument: トラストアンカーのValidDIDDocument（公的に信頼される）
     - trustees: このトラストアンカーから認証を受けた受託者のDIDリスト
+    - claimDefinitions: トラストアンカーが公開するクレーム定義VCのリスト
 -/
 structure TrustAnchorInfo where
   didDocument : ValidDIDDocument
   trustees : List DID  -- このトラストアンカーから認証を受けた受託者のリスト
+  claimDefinitions : List ClaimDefinitionVC  -- トラストアンカーが定義したクレームのリスト
 
 namespace TrustAnchorInfo
 
@@ -979,6 +1034,12 @@ structure Wallet where
   -- 信頼するトラストアンカーの辞書
   -- { トラストアンカーのDID ↦ { DIDDocument、受託者のリスト } }
   trustedAnchors : TrustAnchorDict
+
+  -- ウォレット固有のローカル時刻
+  -- 相対性理論により、共通の時刻は原理的に存在しない
+  -- 各ウォレットが独自の時刻を保持し、検証は検証者の時刻で行われる
+  -- 時刻のずれによる影響は自己責任の範囲
+  localTime : Timestamp
 
 namespace Wallet
 
@@ -1221,8 +1282,9 @@ structure Holder where
 -/
 structure TrustAnchor where
   wallet : Wallet
-  -- この発行者が発行できるクレームタイプ
-  authorizedClaimTypes : List ClaimTypeBasic
+  -- この発行者が発行できるクレームIDのリスト
+  -- （実際にはクレーム定義VCで公開されている）
+  authorizedClaimIDs : List ClaimID
   -- ルート認証局証明書（自己署名）
   rootCertificate : RootAuthorityCertificate
   -- 不変条件: Walletは正規である
@@ -1234,8 +1296,9 @@ structure TrustAnchor where
 -/
 structure Trustee where
   wallet : Wallet
-  -- この発行者が発行できるクレームタイプ
-  authorizedClaimTypes : List ClaimTypeBasic
+  -- この発行者が発行できるクレームIDのリスト
+  -- （TrusteeVCに含まれるauthorizedClaimIDsと一致）
+  authorizedClaimIDs : List ClaimID
   -- 発行者としての認証情報（上位認証局から発行されたVC）
   issuerCredential : VerifiableCredential
   -- 不変条件: Walletは正規である

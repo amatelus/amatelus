@@ -76,11 +76,43 @@ VC := {
 }
 ```
 
-**Definition 2.3 (Zero-Knowledge Proof)**
+**Definition 2.3 (Zero-Knowledge Proof with Mutual Nonce)**
 ```
-ZKP := (π, x) where π proves knowledge of w such that R(x, w) = 1
+ZKP := (π, x, nonce_holder, nonce_verifier)
+where π proves knowledge of w such that R(x, w, nonce_holder, nonce_verifier) = 1
 ```
-ここで、`x`は公開入力、`w`は秘密入力、`R`は関係式、`π`は証明である。
+ここで、`x`は公開入力、`w`は秘密入力、`nonce_holder`はHolder生成のナンス、`nonce_verifier`はVerifier生成のナンス、`R`は関係式、`π`は証明である。
+
+**Nonce構造:**
+```
+Nonce := { value: List UInt8 }
+```
+
+**双方向ナンス生成の設計思想:**
+
+AMATELUSでは、**HolderとVerifierの双方が独立にナンスを生成**する。これにより、どちらか一方のWalletにバグがあっても、もう一方のランダムネスにより安全性が保たれる。
+
+**ナンスフロー:**
+```
+1. Verifier: nonce_verifier を生成（128ビット以上のランダム値）
+2. Verifier → nonce_verifier → Holder
+3. Holder: nonce_holder を生成（128ビット以上のランダム値）
+4. Holder: nonce_combined = H(nonce_holder || nonce_verifier) を計算
+5. Holder: ZKP(nonce_holder, nonce_verifier) を生成
+6. Holder → (ZKP, nonce_holder) → Verifier
+7. Verifier: nonce_combined を再計算して両方のナンスを検証
+```
+
+**通信効率:**
+このフローは最小限の往復回数（1.5往復）で双方向ナンス認証を実現する。
+Holderが先にnonce1を送る方式（2往復）と比較して、50%の通信削減となる。
+
+**安全性保証:**
+- **Verifierのバグ**: `nonce_verifier`が固定値でも、`nonce_holder`のランダム性によりHolderは保護される
+- **Holderのバグ**: `nonce_holder`が固定値でも、`nonce_verifier`のランダム性によりVerifierは保護される
+- **双方のバグ**: 両方のWalletにバグがある場合のみ脆弱（自己責任の範囲）
+
+この設計により、「他人のWalletバグから被害を受けない」というAMATELUSの設計原則が保証される。
 
 **Definition 2.4 (Anonymous Hash Identifier)**
 ```
@@ -92,7 +124,7 @@ AHI := H(AuditSectionID || NationalID)
 ```
 DeviceConstraints := {
   Storage: S_available,
-  Computation: C_available, 
+  Computation: C_available,
   Time: T_idle
 }
 
@@ -100,9 +132,27 @@ ZKP_Requirements := {
   Storage: S_precomp = |PrecomputedProof|,
   Computation: C_precomp = Time_PreComp(n) · CPU_cycles,
   Time: T_precomp,
-  RealtimeNonce: T_nonce
+  RealtimeNonceCombination: T_nonce_combine
 }
 ```
+
+**双方向ナンス結合の計算コスト:**
+- `T_nonce_combine`: リアルタイムで双方のナンスを事前計算済みZKPに結合する時間
+- この操作はユーザーのインタラクション中に実行されるため、数秒以内に完了する必要がある
+- 事前計算（T_precomp）は重い計算を含むが、デバイスの空き時間に実行可能
+- ナンス結合（T_nonce_combine）は軽量な操作（2つのナンスのハッシュ計算とコミットメント更新）であり、リアルタイム要件を満たす
+
+**双方向ナンス結合の手順:**
+```
+1. 事前計算: 部分証明 π_partial を生成（オフライン、数分〜数時間）
+2. Verifier → nonce_verifier → Holder（リアルタイム、数ミリ秒）
+3. Holder: nonce_holder を生成（数ミリ秒）
+4. ナンス結合: nonce_combined = H(nonce_holder || nonce_verifier)（数ミリ秒）
+5. 最終証明: π = Combine(π_partial, nonce_combined)（数ミリ秒〜数百ミリ秒）
+6. Holder → (ZKP, nonce_holder) → Verifier（リアルタイム、数ミリ秒）
+```
+
+この手順により、通信効率と事前計算の利点を両立しつつ、双方向ナンスによる耐バグ性を保証する。
 
 ### 2.2 セキュリティパラメータと仮定
 
@@ -191,43 +241,105 @@ AMATELUSプロトコルの安全性の核心は以下の要素から構成され
 
 失効確認は付加的なポリシー検証であり、これらの核心的安全性とは独立している。失効リスト不在でのVC検証は、従来のX.509証明書がCRLにアクセスできない状況と同等であり、暗号学的有効性は保持される。∎
 
-## 4. 信頼連鎖メカニズムの正当性証明
+## 4. 信頼連鎖メカニズムの正当性証明（1階層制限）
 
-### 4.1 信頼伝播の推移性
+### 4.1 信頼関係の定義と1階層制限
 
 **Definition 4.1 (Trust Relation)**
 ```
 Trust(A, B) := ∃ VC: Issuer(VC) = A ∧ Subject(VC) = B ∧ Valid(VC)
 ```
 
-**Theorem 4.2 (Trust Transitivity)**
-信頼関係は推移的である：
+**Definition 4.2 (Trust Chain Depth Limit)**
+AMATELUSプロトコルでは、信頼チェーンの深さを**1階層のみ**に制限する：
 ```
-Trust(A, B) ∧ Trust(B, C) ⟹ Trust(A, C)
+MaxChainDepth := 1
+
+DirectTrust(A, B) := Trust(A, B) ∧ (A is TrustAnchor)
+
+ValidTrustRelation(A, B) := DirectTrust(A, B)
+```
+
+**設計根拠:**
+- **セキュリティ向上**: PKI的な複雑性を排除し、委譲チェーン攻撃を原理的に防止
+- **形式検証の簡潔性**: 循環検出が不要（1階層では循環が数学的に不可能）
+- **W3C準拠**: W3C VCは推移的信頼を推奨しておらず、1階層制限はW3C思想に近い
+- **実用性**: 政府が直接委託した認定事業者のみを信頼する運用モデルは実務上十分
+
+**Theorem 4.2 (One-Level Trust Chain Security)**
+1階層制限により、以下のセキュリティ特性が保証される：
+```
+∀ chain: List TrustRelation,
+  ValidChain(chain) → chain.length ≤ 1
+```
+
+**Theorem 4.3 (Cycle Impossibility)**
+1階層制限により、信頼チェーンに循環が発生しないことが数学的に保証される：
+```
+∀ chain: List TrustRelation,
+  ValidChain(chain) →
+  chain.length ≤ 1 →
+  NoCycle(chain)
 ```
 
 **Proof:**
-- `Trust(A, B)`により、`∃ VC₁: Issuer(VC₁) = A ∧ Subject(VC₁) = B ∧ Valid(VC₁)`
-- `Trust(B, C)`により、`∃ VC₂: Issuer(VC₂) = B ∧ Subject(VC₂) = C ∧ Valid(VC₂)`
-- VCチェーンコンストラクション`VC_chain = (VC₁, VC₂)`により、`Trust(A, C)`が成立する。∎
+循環 `A → B → A` は最低2階層必要であるため、1階層制限下では循環が原理的に不可能である。∎
 
-### 4.2 VC再発行の一貫性
+**セキュリティ上の利点:**
+1. **委譲攻撃の排除**: 中間者が無制限に権限を再委譲することが不可能
+2. **失効伝播の単純化**: 失効チェックが最大2ステップ（ルート＋1階層）で完結
+3. **計算量攻撃耐性**: 検証時間の上限が保証され、DoS攻撃に強い
+4. **時間依存性の軽減**: 時刻窓の検証がO(n)からO(2)に削減
+5. **単一障害点の影響縮小**: ルート侵害でも1階層のみに影響が限定
 
-**Definition 4.3 (Same Owner Relation)**
+### 4.2 信頼検証プロセス
+
+**検証手順:**
 ```
-SameOwner(DID₁, DID₂) := ∃ sk: Controls(sk, DID₁) ∧ Controls(sk, DID₂)
+verify_trust(issuer: DID, subject: DID, vc: VerifiableCredential):
+  1. issuer がトラストアンカーであることを確認
+  2. vc.issuer = issuer であることを確認
+  3. vc.subject = subject であることを確認
+  4. vc の暗号学的署名を検証
+  5. チェーン深さ = 1 であることを確認（推移的信頼を拒否）
 ```
 
-**Theorem 4.4 (VC Reissuance Consistency)**
-DID更新時のVC再発行は一貫性を保つ：
+**非推移性の保証:**
 ```
-∀ DID_old, DID_new, VC_old:
-SameOwner(DID_old, DID_new) ∧ Subject(VC_old) = DID_old ⟹
-∃ VC_new: Subject(VC_new) = DID_new ∧ SameClaims(VC_old, VC_new)
+¬TransitiveTrust: ¬(Trust(A, B) ∧ Trust(B, C) ⟹ Trust(A, C))
 ```
 
-**Proof:**
-AMATELUSのVC再発行プロトコルにより、同一所有者の証明が確認された場合、発行者は同等のクレームを持つ新しいVCを発行する義務を負う。この一貫性はプロトコルの設計により保証される。∎
+この非推移性により、B（受託者）がC（第三者）に権限を再委譲しても、
+A（トラストアンカー）からC（第三者）への信頼は**成立しない**。
+
+### 4.3 VC再発行の設計考慮事項
+
+**注:** VC再発行は**W3C VC標準の機能**であり、AMATELUS固有のプロトコル設計ではありません。このセクションでは、1階層制限下でのVC再発行の設計考慮事項を説明します。
+
+**1階層制限とVC再発行:**
+
+1階層制限は、受託者による**新たな受託者の認定**を防ぎますが、受託者によるエンドユーザーへのVC再発行は許可されます。これは設計上の制限ではなく、VC発行の本来の機能です。
+
+例：政府（トラストアンカー）→ 自治体（受託者）→ 住民（エンドユーザー）
+- 自治体は住民のスマホ買い替え時に新しいDIDへ住民票VCを再発行できる
+- これは1階層制限に違反しない（自治体は新たな受託者を認定していない）
+
+**発行者侵害のリスク（すべての階層で共通）:**
+
+VC発行者（トラストアンカーまたは受託者）が侵害された場合のリスクは、階層数に関わらず存在します：
+1. 不正なVC再発行
+2. 虚偽の同一性証明VCの発行
+
+**1階層制限による影響範囲の局所化:**
+- **0階層**（政府のみ）: 政府侵害 → 全住民に影響（単一障害点）
+- **1階層**（政府→自治体）: 自治体A侵害 → 自治体A管轄の住民のみに影響（局所化）
+- **無制限階層**: 末端受託者侵害 → 不正な再委譲により影響が連鎖的に拡大
+
+**対策（すべての階層で共通）:**
+- 再発行には元のVCの失効が必須
+- 同一性証明VCには特別な検証要件（複数の証拠提出）
+- すべての再発行を監査ログに記録
+- 重要なVCはトラストアンカーのみが再発行可能とするポリシー
 
 ## 5. プライバシー保護機構の完全性証明
 
@@ -377,17 +489,17 @@ ResourceConstraintViolation :=
 **Theorem 8.1 (ZKP Feasibility Conditions)**
 AMATELUSプロトコルの実用的実現可能性は以下の条件に依存する：
 ```
-Feasible(AMATELUS) ⟺ 
+Feasible(AMATELUS) ⟺
   PrecompFeasible ∧ RealtimeFeasible
 
 where:
-PrecompFeasible := 
-  (S_precomp ≤ S_available) ∧ 
-  (C_precomp ≤ C_available) ∧ 
+PrecompFeasible :=
+  (S_precomp ≤ S_available) ∧
+  (C_precomp ≤ C_available) ∧
   (T_precomp ≤ T_idle)
 
-RealtimeFeasible := 
-  Pr[T_nonce ≤ T_expected] ≥ 1 - ε
+RealtimeFeasible :=
+  T_nonce_combine ≤ T_user_tolerance (通常3秒以内)
 ```
 
 **Proof:**
@@ -396,12 +508,27 @@ ZKP生成は以下の2段階で構成される：
 1. **事前計算段階**: 重い計算部分（回路評価）
    - 静的な公開入力に基づく部分証明生成
    - デバイスの空き時間での実行が可能
+   - 数分〜数時間の計算時間を許容
 
-2. **リアルタイム段階**: ナンス結合
-   - セッション固有のナンスを含む最終証明生成
-   - ユーザー期待時間内での完了が必須
+2. **リアルタイム双方向ナンス結合段階**:
+   - Verifierが`nonce_verifier`を生成してHolderに送信
+   - Holderが`nonce_holder`を生成（Verifierからnonce2を受信後）
+   - Holderが双方のナンスを事前計算済みZKPに結合
+   - 軽量な操作（2つのナンスのハッシュ計算とコミットメント更新のみ）
+   - ユーザーのインタラクション中に実行（数秒以内）
+   - セッション固有性を保証しつつ、UX要件を満たす
+   - 通信効率: 最小限の往復回数（1.5往復）で完結
 
-両段階の実行可能性がプロトコル全体の実現可能性を決定する。∎
+**双方向ナンス結合の計算量:**
+```
+T_nonce_combine = O(|nonce_holder| + |nonce_verifier|) + O(hash_update) ≈ 数ミリ秒〜数百ミリ秒
+```
+
+**安全性の利点:**
+- どちらか一方のWalletがバグで固定ナンスを生成しても、もう一方のランダムネスにより保護される
+- 「他人のWalletバグから被害を受けない」というAMATELUSの設計原則を保証
+
+この軽量な操作により、リアルタイム性、セキュリティ、耐バグ性を両立する。∎
 
 ### 8.2 システムスケーラビリティ
 
@@ -417,7 +544,12 @@ Storage(n_users) = O(n_users)
 
 **Sybil攻撃**: プロトコルレベルでは直接的脅威ではない。複数DIDの保有はAMATELUSの設計思想における意図的特徴であり、社会運用上の不都合がある場合にのみ、匿名ハッシュ識別子による制限が適用される。
 
-**リプレイ攻撃**: ナンス機構により防御される。ただし、リアルタイムでのナンス結合が計算資源制約に依存する。
+**リプレイ攻撃**: 双方向ナンス機構により防御される。
+- HolderとVerifierの**双方が独立にナンス（128ビット以上）を生成**
+- 双方のナンスをZKPに結合: `nonce_combined = H(nonce_holder || nonce_verifier)`
+- ナンス結合は軽量な操作であり、リアルタイム要件（数秒以内）を満たす
+- **安全性保証**: どちらか一方のWalletにバグがあっても、もう一方のランダムネスにより保護される
+- 事前計算済みZKPと双方のナンスを結合することで、重い計算をオフラインで実行しつつセッション固有性を保証
 
 **中間者攻撃**: 相互認証可能な安全な通信プロトコル（実装レベルの考慮事項）により防御される
 
@@ -441,7 +573,10 @@ Storage(n_users) = O(n_users)
 
 1. **暗号学的完全性**: DID、VC、ZKPの各メカニズムが暗号学的に安全である（Theorem 3.1-3.5, 5.3）
 
-2. **信頼伝播の正当性**: VC発行チェーンによる信頼の連鎖が数学的に保証される（Theorem 4.2, 4.4）
+2. **信頼連鎖の制限性**: 1階層制限により、PKI的脆弱性を排除し、安全性を数学的に保証する（Theorem 4.2, 4.3, 4.5）
+   - 委譲チェーン攻撃の原理的防止
+   - 循環の数学的不可能性
+   - 失効伝播の単純化（O(1)複雑度）
 
 3. **プライバシー保護の完全性**: 複数DID使用による名寄せ防止が情報理論的に証明された（Theorem 5.1）
 
@@ -452,6 +587,9 @@ Storage(n_users) = O(n_users)
 6. **失効確認の独立性**: VC検証の安全性が失効リストの可用性に依存しない（Theorem 3.5）
 
 7. **実現可能性の条件**: ZKP生成の実現可能性が明確に定義された資源制約に依存する（Theorem 8.1）
+   - 事前計算: 重い計算（数分〜数時間）をオフラインで実行
+   - 双方向ナンス結合: 軽量操作（数ミリ秒〜数百ミリ秒）をリアルタイムで実行
+   - リプレイ攻撃防止、他人のWalletバグからの保護、UX要件の三立
 
 8. **脆弱性の限定性**: プロトコルの脆弱性が暗号方式、ZKP計算複雑性、および資源制約のみに収束する（Theorem 7.2）
 

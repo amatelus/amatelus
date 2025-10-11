@@ -57,6 +57,92 @@ structure DateTime where
   value : String
   deriving Repr, DecidableEq
 
+/-! ### DateTime Parsing and Comparison
+
+ISO 8601 datetime parsing and comparison functions.
+Supports simplified format: YYYY-MM-DDTHH:MM:SSZ
+-/
+
+/-- Parsed datetime components -/
+structure DateTimeComponents where
+  year : Nat
+  month : Nat  -- 1-12
+  day : Nat    -- 1-31
+  hour : Nat   -- 0-23
+  minute : Nat -- 0-59
+  second : Nat -- 0-59
+  deriving Repr, DecidableEq
+
+/-- Parse a string to natural number -/
+def parseNat (s : String) : Option Nat :=
+  s.foldl (fun acc c =>
+    acc.bind fun n =>
+      if '0' ≤ c ∧ c ≤ '9' then
+        some (n * 10 + (c.toNat - '0'.toNat))
+      else
+        none
+  ) (some 0)
+
+/-- Parse ISO 8601 datetime string (simplified format: YYYY-MM-DDTHH:MM:SSZ) -/
+def parseDateTime (dt : DateTime) : Option DateTimeComponents :=
+  let s := dt.value
+  -- Expected format: YYYY-MM-DDTHH:MM:SSZ (length 20)
+  if s.length < 20 then
+    none
+  else
+    let yearStr := s.toSubstring.extract ⟨0⟩ ⟨4⟩ |>.toString
+    let monthStr := s.toSubstring.extract ⟨5⟩ ⟨7⟩ |>.toString
+    let dayStr := s.toSubstring.extract ⟨8⟩ ⟨10⟩ |>.toString
+    let hourStr := s.toSubstring.extract ⟨11⟩ ⟨13⟩ |>.toString
+    let minuteStr := s.toSubstring.extract ⟨14⟩ ⟨16⟩ |>.toString
+    let secondStr := s.toSubstring.extract ⟨17⟩ ⟨19⟩ |>.toString
+    match parseNat yearStr, parseNat monthStr, parseNat dayStr,
+          parseNat hourStr, parseNat minuteStr, parseNat secondStr with
+    | some year, some month, some day, some hour, some minute, some second =>
+        -- Basic validation
+        if month >= 1 && month <= 12 &&
+           day >= 1 && day <= 31 &&
+           hour <= 23 &&
+           minute <= 59 &&
+           second <= 59 then
+          some { year, month, day, hour, minute, second }
+        else
+          none
+    | _, _, _, _, _, _ => none
+
+/-- Convert datetime components to comparable value (seconds since epoch approximation) -/
+def dateTimeToSeconds (dtc : DateTimeComponents) : Nat :=
+  let daysSinceEpoch :=
+    dtc.year * 365 +
+    dtc.month * 31 +
+    dtc.day
+  let secondsInDay := dtc.hour * 3600 + dtc.minute * 60 + dtc.second
+  daysSinceEpoch * 86400 + secondsInDay
+
+/-- Compare two DateTimes (returns true if dt1 < dt2) -/
+def dateTimeBefore (dt1 dt2 : DateTime) : Bool :=
+  match parseDateTime dt1, parseDateTime dt2 with
+  | some c1, some c2 => dateTimeToSeconds c1 < dateTimeToSeconds c2
+  | _, _ => false  -- Invalid datetimes are not comparable
+
+/-- Compare two DateTimes (returns true if dt1 > dt2) -/
+def dateTimeAfter (dt1 dt2 : DateTime) : Bool :=
+  match parseDateTime dt1, parseDateTime dt2 with
+  | some c1, some c2 => dateTimeToSeconds c1 > dateTimeToSeconds c2
+  | _, _ => false  -- Invalid datetimes are not comparable
+
+/-- Compare two DateTimes (returns true if dt1 ≤ dt2) -/
+def dateTimeBeforeOrEqual (dt1 dt2 : DateTime) : Bool :=
+  match parseDateTime dt1, parseDateTime dt2 with
+  | some c1, some c2 => dateTimeToSeconds c1 ≤ dateTimeToSeconds c2
+  | _, _ => false  -- Invalid datetimes are not comparable
+
+/-- Compare two DateTimes (returns true if dt1 ≥ dt2) -/
+def dateTimeAfterOrEqual (dt1 dt2 : DateTime) : Bool :=
+  match parseDateTime dt1, parseDateTime dt2 with
+  | some c1, some c2 => dateTimeToSeconds c1 ≥ dateTimeToSeconds c2
+  | _, _ => false  -- Invalid datetimes are not comparable
+
 /-! ## 4. Issuer
 
 The issuer can be a URI or an object with additional properties.
@@ -290,7 +376,7 @@ structure InvalidVC where
     Sum type of valid and invalid credentials.
     Represents the result of cryptographic verification.
 
-    **Design Pattern (from AMATELUS):**
+    **Design Pattern:**
     - `valid`: Proof verification succeeded
     - `invalid`: Proof verification failed
     - Verification function is a simple pattern match
@@ -345,13 +431,13 @@ def isValid (vc : VerifiableCredential) : Prop :=
 def hasExpired (vc : VerifiableCredential) (now : DateTime) : Prop :=
   match (getCredential vc).validUntil with
   | none => False
-  | some validUntil => validUntil = now  -- Simplified: real impl would compare
+  | some validUntil => dateTimeAfter now validUntil = true
 
 /-- Check if a verifiable credential is not yet valid -/
 def notYetValid (vc : VerifiableCredential) (now : DateTime) : Prop :=
   match (getCredential vc).validFrom with
   | none => False
-  | some validFrom => validFrom = now  -- Simplified: real impl would compare
+  | some validFrom => dateTimeBefore now validFrom = true
 
 end VerifiableCredential
 
@@ -628,7 +714,56 @@ def supportsUnlinkability (vc : VerifiableCredential) : Prop :=
   -- Requires ZKP-based signatures
   supportsSelectiveDisclosure vc
 
-/-! ## 25. Core Theorems -/
+/-! ## 25. DateTime Comparison Properties -/
+
+/-- DateTime comparison is reflexive for valid datetimes -/
+theorem dateTime_refl (dt : DateTime) :
+    parseDateTime dt ≠ none → dateTimeBeforeOrEqual dt dt = true := by
+  intro h
+  unfold dateTimeBeforeOrEqual
+  cases hparse : parseDateTime dt with
+  | none => contradiction
+  | some c => simp [hparse]
+
+/-- If dt1 is before dt2, then dt2 is after dt1 -/
+theorem dateTime_before_after (dt1 dt2 : DateTime) :
+    dateTimeBefore dt1 dt2 = true → dateTimeAfter dt2 dt1 = true := by
+  intro h
+  unfold dateTimeBefore dateTimeAfter at *
+  cases h1 : parseDateTime dt1 with
+  | none =>
+    simp [h1] at h
+  | some c1 =>
+    cases h2 : parseDateTime dt2 with
+    | none =>
+      simp [h1, h2] at h
+    | some c2 =>
+      simp [h1, h2] at h ⊢
+      omega
+
+/-- Transitivity of dateTimeBefore -/
+theorem dateTime_trans (dt1 dt2 dt3 : DateTime) :
+    dateTimeBefore dt1 dt2 = true →
+    dateTimeBefore dt2 dt3 = true →
+    dateTimeBefore dt1 dt3 = true := by
+  intros h12 h23
+  unfold dateTimeBefore at *
+  cases h1 : parseDateTime dt1 with
+  | none =>
+    simp [h1] at h12
+  | some c1 =>
+    cases h2 : parseDateTime dt2 with
+    | none =>
+      simp [h1, h2] at h12
+    | some c2 =>
+      cases h3 : parseDateTime dt3 with
+      | none =>
+        simp [h2, h3] at h23
+      | some c3 =>
+        simp [h1, h2, h3] at h12 h23 ⊢
+        omega
+
+/-! ## 26. Core Theorems -/
 
 /-- Valid credentials always pass signature verification -/
 theorem valid_vc_passes_verification (vvc : ValidVC) :
@@ -747,5 +882,96 @@ def exampleValidVP : ValidVP := {
 /-- Example verifiable presentation -/
 def exampleVerifiablePresentation : VerifiablePresentation :=
   VerifiablePresentation.valid exampleValidVP
+
+/-! ## 27. DateTime Comparison Examples
+
+These examples demonstrate the DateTime parsing and comparison functions.
+-/
+
+set_option linter.style.nativeDecide false
+
+/-- Example DateTime values -/
+def dt1 : DateTime := ⟨"2023-01-01T00:00:00Z"⟩
+def dt2 : DateTime := ⟨"2023-06-15T12:30:45Z"⟩
+def dt3 : DateTime := ⟨"2024-01-01T00:00:00Z"⟩
+def dtInvalid : DateTime := ⟨"invalid"⟩
+
+/-- Example: Parse valid datetime -/
+example : parseDateTime dt1 = some {
+  year := 2023, month := 1, day := 1,
+  hour := 0, minute := 0, second := 0
+} := by native_decide
+
+/-- Example: Parse invalid datetime -/
+example : parseDateTime dtInvalid = none := by native_decide
+
+/-- Example: Compare datetimes (dt1 < dt2) -/
+example : dateTimeBefore dt1 dt2 = true := by native_decide
+
+/-- Example: Compare datetimes (dt2 < dt3) -/
+example : dateTimeBefore dt2 dt3 = true := by native_decide
+
+/-- Example: Compare datetimes (dt1 < dt3) -/
+example : dateTimeBefore dt1 dt3 = true := by native_decide
+
+/-- Example: dt2 is after dt1 -/
+example : dateTimeAfter dt2 dt1 = true := by native_decide
+
+/-- Example: dt1 is not after dt2 -/
+example : dateTimeAfter dt1 dt2 = false := by native_decide
+
+/-- Test credential with validFrom and validUntil -/
+def testCredentialWithDates : Credential := {
+  context := [exampleContext]
+  type_ := [exampleCredentialType]
+  issuer := Issuer.uri "https://example.edu/issuers/565049"
+  validFrom := some dt1
+  validUntil := some dt3
+  credentialSubject := [exampleSubject]
+}
+
+def testCredentialWithProof : CredentialWithProof := {
+  credential := testCredentialWithDates
+  proof := [exampleProof]
+}
+
+def testValidVC : ValidVC := {
+  credentialWithProof := testCredentialWithProof
+}
+
+def testVerifiableCredential : VerifiableCredential :=
+  VerifiableCredential.valid testValidVC
+
+/-- Example: Check if credential has expired (it hasn't at dt2) -/
+example : VerifiableCredential.hasExpired testVerifiableCredential dt2 = False := by
+  unfold VerifiableCredential.hasExpired VerifiableCredential.getCredential
+  unfold VerifiableCredential.getCredentialWithProof
+  simp [testVerifiableCredential, testValidVC, testCredentialWithProof, testCredentialWithDates]
+  native_decide
+
+/-- Example: Check if credential is not yet valid (it is valid at dt2) -/
+example : VerifiableCredential.notYetValid testVerifiableCredential dt2 = False := by
+  unfold VerifiableCredential.notYetValid VerifiableCredential.getCredential
+  unfold VerifiableCredential.getCredentialWithProof
+  simp [testVerifiableCredential, testValidVC, testCredentialWithProof, testCredentialWithDates]
+  native_decide
+
+/-- Test cases for DateTime comparison -/
+def dateTimeComparisonTests : List (String × Bool) := [
+  ("2023-01-01 < 2023-06-15", dateTimeBefore dt1 dt2),
+  ("2023-06-15 < 2024-01-01", dateTimeBefore dt2 dt3),
+  ("2023-01-01 < 2024-01-01", dateTimeBefore dt1 dt3),
+  ("2024-01-01 > 2023-06-15", dateTimeAfter dt3 dt2),
+  ("2023-01-01 ≤ 2023-01-01", dateTimeBeforeOrEqual dt1 dt1),
+  ("2023-01-01 ≥ 2023-01-01", dateTimeAfterOrEqual dt1 dt1)
+]
+
+/-- Test cases for DateTime parsing -/
+def dateTimeParseTests : List (String × Bool) := [
+  ("Valid: 2023-01-01T00:00:00Z", (parseDateTime dt1).isSome),
+  ("Valid: 2023-06-15T12:30:45Z", (parseDateTime dt2).isSome),
+  ("Valid: 2024-01-01T00:00:00Z", (parseDateTime dt3).isSome),
+  ("Invalid: 'invalid'", (parseDateTime dtInvalid).isSome)
+]
 
 end W3C

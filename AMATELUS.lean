@@ -7,8 +7,8 @@
 -- 暗号プリミティブ型定義
 import AMATELUS.CryptoTypes
 
--- 基本定義
-import AMATELUS.Basic
+-- DID
+import AMATELUS.DID
 
 -- セキュリティ仮定
 import AMATELUS.SecurityAssumptions

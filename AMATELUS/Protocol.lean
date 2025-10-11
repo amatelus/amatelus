@@ -5,7 +5,9 @@
 （Theorem 7.1, 7.2, 8.1）。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.VC
+import AMATELUS.ZKP
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.TrustChain

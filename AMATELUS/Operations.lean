@@ -4,7 +4,10 @@
 このファイルは、Wallet、Holder、Issuer、Verifierの具体的な操作を定義します。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.VC
+import AMATELUS.ZKP
+import AMATELUS.Roles
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.TrustChain
@@ -41,7 +44,7 @@ def getCredential
 
 /-- ZKP生成の材料をまとめた構造体
 
-    この宇宙には、すべての可能な材料の組み合わせに対して
+    すべての可能な材料の組み合わせに対して
     適切なZKPが既に存在しているという理想化モデル。
 -/
 structure ZKPMaterial where
@@ -161,7 +164,7 @@ theorem universalZKPOracle_isValid :
 
 /-- ナンスと事前計算されたProofを結合する関数（辞書からの取り出し）
 
-    宇宙辞書からのルックアップ操作として定義。
+    辞書からのルックアップ操作として定義。
     これにより、形式的な意味が明確になる。
 -/
 noncomputable def combinePrecomputedProofWithNonce
@@ -178,7 +181,7 @@ noncomputable def combinePrecomputedProofWithNonce
     nonce := nonce
     secretKey := secretKey
   }
-  -- 宇宙辞書から対応するZKPを取り出す
+  -- 辞書から対応するZKPを取り出す
   universalZKPOracle material
 
 /-- WalletのIdentityを使ってZKPを生成

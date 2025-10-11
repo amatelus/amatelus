@@ -5,7 +5,8 @@
 定理と証明を含みます（Theorem 3.1-3.5）。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.VC
 import AMATELUS.SecurityAssumptions
 
 -- ## Theorem 3.1: DID Uniqueness and Integrity

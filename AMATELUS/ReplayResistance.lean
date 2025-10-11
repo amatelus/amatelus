@@ -4,7 +4,9 @@
 このファイルは、AMATELUSプロトコルのZKP提示におけるリプレイ攻撃耐性を形式的に証明します。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.ZKP
+import AMATELUS.Roles
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Operations
 

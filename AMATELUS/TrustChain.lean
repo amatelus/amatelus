@@ -12,7 +12,8 @@
 - 2階層以上のVCを信頼するかは各検証者の自由だが、AMATELUSの安全性保証は1階層のみに適用
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.Roles
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 

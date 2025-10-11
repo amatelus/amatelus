@@ -5,7 +5,8 @@
 （Theorem 6.1, 6.2）。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.VC
 import AMATELUS.SecurityAssumptions
 
 -- ## Theorem 6.1: Reverse Engineering Resistance (逆引き制限)

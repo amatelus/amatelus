@@ -5,7 +5,8 @@
 ZKPの零知識性を証明します（Theorem 5.1, 5.3）。
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.ZKP
 import AMATELUS.SecurityAssumptions
 
 -- ## サービスとプロトコル実行履歴の定義

@@ -17,7 +17,10 @@
 
 -/
 
-import AMATELUS.Basic
+import AMATELUS.DID
+import AMATELUS.VC
+import AMATELUS.ZKP
+import AMATELUS.Roles
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.Operations

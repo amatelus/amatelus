@@ -137,15 +137,46 @@ theorem vc_signature_forgery_quantum_secure :
 
 -- ## Theorem 3.5: Revocation-Independent Protocol Safety
 
-/-- VC検証の暗号学的完全性（失効確認なし） -/
-noncomputable def cryptographic_verify (vc : VerifiableCredential) (issuerPK : PublicKey) : Bool :=
-  -- VCの署名を検証
-  -- Note: VerifiableCredentialはinductive typeなので、getCoreを使用してW3CCredentialCoreを取得
-  amatSignature.verify issuerPK [] (VerifiableCredential.getCore vc).signature
+/-- VC検証の暗号学的完全性（失効確認なし）
 
-/-- ポリシー準拠性の定義（抽象化） -/
-def policy_compliant (_mode : String) (_requirements : String) : Bool :=
-  true  -- 実装依存
+    **Stage 5設計:**
+    signatureはValidVCのみが持つフィールドです。
+    - ValidVCの場合: 署名を検証
+    - InvalidVCの場合: signatureがないため、検証は失敗（false）
+-/
+noncomputable def cryptographic_verify (vc : VerifiableCredential) (issuerPK : PublicKey) : Bool :=
+  match vc with
+  | VerifiableCredential.valid vvc =>
+      -- ValidVCの場合: 署名を検証
+      amatSignature.verify issuerPK [] vvc.signature
+  | VerifiableCredential.invalid _ =>
+      -- InvalidVCの場合: 署名がないため検証失敗
+      false
+
+/-- ポリシー準拠性の定義
+
+    検証モードと要件文字列に基づいてポリシー準拠性を判定します。
+
+    モード:
+    - "strict": 厳格モード - 要件が明示的に指定されている必要がある
+    - "standard": 標準モード - 基本的なチェックを実行
+    - "none": チェックなし - 常に準拠とみなす
+    - その他: 未知のモードは非準拠とみなす
+-/
+def policy_compliant (mode : String) (requirements : String) : Bool :=
+  match mode with
+  | "strict" =>
+      -- 厳格モード: 要件が空でないことを要求
+      !requirements.isEmpty
+  | "standard" =>
+      -- 標準モード: 常に準拠
+      true
+  | "none" =>
+      -- チェックなし: 常に準拠
+      true
+  | _ =>
+      -- 未知のモード: 非準拠
+      false
 
 /-- プロトコル安全性の定義 -/
 def protocol_safe (vc : VerifiableCredential) (mode : String)
@@ -203,14 +234,14 @@ theorem hash_uniqueness_quantum_secure :
 def proves_ownership (sk : SecretKey) (_did : DID) (vdoc : ValidDIDDocument) : Prop :=
   -- 公開鍵がDIDドキュメント内の公開鍵と一致
   ∃ (pk : PublicKey),
-    vdoc.core.publicKey = pk ∧
+    extractPublicKey vdoc.w3cDoc = some pk ∧
     -- 秘密鍵で署名できることを示す
     ∀ (msg : List UInt8),
       amatSignature.verify pk msg (amatSignature.sign sk msg) = true
 
 theorem did_ownership_proof :
   ∀ (sk : SecretKey) (pk : PublicKey) (vdoc : ValidDIDDocument),
-    vdoc.core.publicKey = pk →
+    extractPublicKey vdoc.w3cDoc = some pk →
     proves_ownership sk (DID.valid (DID.fromValidDocument vdoc)) vdoc := by
   intro sk pk vdoc h
   unfold proves_ownership

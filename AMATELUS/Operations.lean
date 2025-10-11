@@ -101,7 +101,6 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : ZeroKnow
       proofPurpose := "credential-presentation"
       created := { unixTime := 0 }  -- タイムスタンプは実装依存
     }
-    holderDID := DID.invalid { hash := { value := [] }, reason := "dummy" }  -- DIDは材料に含まれないためダミー
     holderNonce := ⟨[]⟩  -- 単方向プロトコル用（プレースホルダ）
     verifierNonce := material.nonce  -- Verifierが生成したnonce
     claimedAttributes := "ZKP-based credential presentation"
@@ -220,9 +219,13 @@ def standardAttributeVCType : VCType :=
   { value := "VerifiableCredential,AttributeCredential" }
 
 /-- 失効情報を生成（初期状態：失効なし）
+
+    **Stage 6設計:**
+    RevocationInfoはOption W3C.CredentialStatusなので、
+    失効情報がない場合はnoneを返します。
 -/
 def noRevocationInfo : RevocationInfo :=
-  { statusListUrl := none }
+  none
 
 /-- VCを発行する関数（誰でも実行可能）
 
@@ -250,29 +253,40 @@ noncomputable def issueCredential
   let claimsBytes := claims.data.toUTF8.data.toList
   -- 秘密鍵で署名
   let signature := amatSignature.sign issuerSecretKey claimsBytes
-  -- W3C基本構造を構築
-  let w3cCore : W3CCredentialCore := {
-    context := standardVCContext
-    type := standardAttributeVCType
-    issuer := issuerDID
-    subject := subjectDID
-    signature := signature
+  -- W3C基本構造を構築（Stage 2-6を反映）
+  -- Stage 6: W3C.Credentialを直接構築（W3CCredentialCoreは型エイリアス）
+  let w3cCore : W3C.Credential := {
+    context := [standardVCContext]  -- Stage 2: Listでラップ
+    type_ := [standardAttributeVCType]  -- Stage 6: W3C.Credentialのtype_フィールド
+    issuer := didToW3CIssuer issuerDID  -- Stage 3: W3C.Issuer型に変換
+    credentialSubject := [didToCredentialSubject subjectDID]  -- Stage 4: W3C.CredentialSubject型に変換
+    -- Stage 5: signatureフィールドを削除（ValidVCに移動）
     credentialStatus := noRevocationInfo
   }
   -- AMATELUS構造を構築（委任者なし = 直接発行）
+  -- Stage 6: コンポジション方式に変更
   let amatCore : AMATELUSCredential := {
-    toW3CCredentialCore := w3cCore
+    w3cCredential := w3cCore
     delegator := none  -- 委任なし
   }
   -- AttributeVCとして構築
+  -- Stage 6: コンポジション方式に変更
   let attributeVC : AttributeVC := {
-    toAMATELUSCredential := amatCore
+    amatelus := amatCore
     claims := claims
   }
   -- VCTypeとして構築
   let vcType : VCTypeCore := VCTypeCore.attributeVC attributeVC
   -- ValidVCとして構築（amatSignature.completenessにより署名は有効）
-  let validVC : ValidVC := { vcType := vcType }
+  -- Stage 3: issuerDIDを型レベルで保証
+  -- Stage 4: subjectDIDを型レベルで保証
+  -- Stage 5: signatureを型レベルで保証
+  let validVC : ValidVC := {
+    vcType := vcType
+    issuerDID := issuerDID
+    subjectDID := subjectDID
+    signature := signature  -- Stage 5: ValidVCに署名を含める
+  }
   -- VerifiableCredentialとして返す
   VerifiableCredential.valid validVC
 
@@ -339,15 +353,20 @@ def checkTrustChainRecursive
           -- そのトラストアンカーが信頼できるか再帰的にチェック
           checkTrustChainRecursive dict trustedRoots anchorDID depth'
 
-/-- 信頼チェーンの検証 -/
+/-- 信頼チェーンの検証
+
+    **Stage 3対応:** getIssuerは常にDIDを返す（ValidVCは型レベルで保証）
+-/
 def verifyTrustChain
     (dict : TrustAnchorDict)
     (policy : TrustPolicy)
     (vc : VerifiableCredential) : Prop :=
+  -- 発行者DIDを取得
+  let issuerDID := VerifiableCredential.getIssuer vc
   -- 発行者がルート認証局リストに含まれているか確認
-  (VerifiableCredential.getIssuer vc ∈ policy.trustedRoots) ∨
+  (issuerDID ∈ policy.trustedRoots) ∨
   -- または、信頼チェーンを辿る（深さ制限あり）
-  (checkTrustChainRecursive dict policy.trustedRoots (VerifiableCredential.getIssuer vc) policy.maxChainDepth)
+  (checkTrustChainRecursive dict policy.trustedRoots issuerDID policy.maxChainDepth)
 
 /-- VerifierがVCを検証 -/
 def verifyCredential
@@ -404,8 +423,10 @@ theorem wallet_store_preserves_validity :
 
     **証明の構造:**
     1. VerifiableCredential.isValid vc が成立（暗号学的に有効）
-    2. issuerがtrustedRootsに含まれる（Verifierが信頼）
+    2. getIssuer vcがtrustedRootsに含まれる（Verifierが信頼）
     3. Verifier.verifyCredentialの定義により、両方の条件を満たせば検証成功
+
+    **Stage 3設計:** getIssuerは直接DIDを返す（ValidVCは型レベルで保証）
 -/
 theorem verifier_accepts_valid_credential :
   ∀ (verifier : Verifier) (vc : VerifiableCredential),
@@ -420,5 +441,5 @@ theorem verifier_accepts_valid_credential :
     exact h_valid
   · -- 信頼チェーン検証
     unfold Verifier.verifyTrustChain
-    left  -- issuer ∈ trustedRoots を選択
+    left  -- issuerDID ∈ trustedRoots を選択
     exact h_trusted

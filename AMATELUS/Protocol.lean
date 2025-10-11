@@ -298,8 +298,6 @@ theorem audit_execution_preserves_security :
     SecurityInvariant s₂ := by
   intro s₁ s₂ ahi h_valid h_inv
   -- ValidTransitionから監査実行の性質を取得
-  -- s₂.dids = s₁.dids ∧ s₂.vcs = s₁.vcs ∧ s₂.zkps = s₁.zkps ∧
-  -- (∃ auditSection nationalID, ahi = AnonymousHashIdentifier.fromComponents auditSection nationalID)
   unfold ValidTransition at h_valid
   -- SecurityInvariantは Integrity ∧ Privacy ∧ Auditability
   unfold SecurityInvariant at h_inv ⊢

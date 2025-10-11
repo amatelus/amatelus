@@ -95,11 +95,13 @@ def isDirectTrustVC (vc : VerifiableCredential) (wallet : Wallet) : Prop :=
       match VCTypeCore.getDelegator vvc.vcType with
       | none =>
           -- 0階層: トラストアンカー直接発行
-          let issuerDID := VCTypeCore.getIssuer vvc.vcType
+          -- Stage 3: ValidVCは型レベルでissuerDIDを保証
+          let issuerDID := vvc.issuerDID
           (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome
       | some anchorDID =>
           -- 1階層: 委任者経由発行
-          let issuerDID := VCTypeCore.getIssuer vvc.vcType
+          -- Stage 3: ValidVCは型レベルでissuerDIDを保証
+          let issuerDID := vvc.issuerDID
           match TrustAnchorDict.lookup wallet.trustedAnchors anchorDID with
           | none => False  -- トラストアンカーが信頼されていない
           | some info => issuerDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
@@ -251,7 +253,8 @@ def getClaimID (claims : Claims) : Option ClaimID :=
     共通の時刻は原理的に存在しないため、検証者のウォレット時刻で有効期限をチェック。
     時刻のずれによる影響は自己責任の範囲。
 -/
-def RootAuthorityCertificate.isValidCert (cert : RootAuthorityCertificate) (verifierWallet : Wallet) : Prop :=
+def RootAuthorityCertificate.isValidCert
+    (cert : RootAuthorityCertificate) (verifierWallet : Wallet) : Prop :=
   -- 有効期限のチェック（検証者のローカル時刻で判定）
   verifierWallet.localTime.unixTime ≤ cert.validUntil.unixTime ∧
   -- 証明書がWalletの信頼するトラストアンカーリストに含まれる

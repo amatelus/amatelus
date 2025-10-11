@@ -474,7 +474,8 @@ theorem replay_attack_resistance_conditional :
                          attack.originalPresentation.zkp
                          history := by
   intro attack history h_diff_nonce h_original_valid
-  exact replay_attack_prevented_by_unique_nonce_generator attack history h_diff_nonce h_original_valid
+  exact replay_attack_prevented_by_unique_nonce_generator
+    attack history h_diff_nonce h_original_valid
 
 -- ## セキュリティ保証と設計要件
 
@@ -502,7 +503,8 @@ theorem nonce_reuse_enables_replay_attack :
     verifierChecksNonce session₁ zkp history →
     -- session₂でも検証成功（リプレイ攻撃成立！）
     verifierChecksNonce session₂ zkp history := by
-  intro zkp session₁ session₂ history h_diff_session h_same_nonce h_same_verifier h_history_verifier h_verify₁
+  intro zkp session₁ session₂ history h_diff_session
+    h_same_nonce h_same_verifier h_history_verifier h_verify₁
   unfold verifierChecksNonce at h_verify₁ ⊢
   have ⟨h_bound₁, h_fresh₁, _h_verifier₁⟩ := h_verify₁
   constructor

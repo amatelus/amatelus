@@ -20,12 +20,16 @@ structure Nonce where
 
 -- ## Definition 2.3: Zero-Knowledge Proof
 
-/-- W3C ZKP仕様の基本構造
+/-- Zero-Knowledge Proof の基本構造
 
     すべてのZKPはこの基本構造を含む。
-    参考: W3C VC Data Model 2.0 の Proof 仕様
+
+    **注意:** W3Cが標準化しているのは一般的な`proof`構造であり、
+    ZKP固有の構造ではありません。この構造はAMATELUSのZKP実装のために定義されています。
+
+    参考: W3C VC Data Model 2.0 の Proof 仕様（一般的な証明構造）
 -/
-structure W3CZKProofCore where
+structure ZKProofCore where
   proof : Proof               -- 証明データ（π）
   publicInput : PublicInput   -- 公開入力（x）
   proofPurpose : String       -- 証明の目的（authentication, assertionMethodなど）
@@ -43,7 +47,7 @@ structure W3CZKProofCore where
     どちらか一方のWalletにバグがあっても保護される設計。
 -/
 structure VerifierAuthZKPCore where
-  core : W3CZKProofCore
+  core : ZKProofCore
   verifierDID : DID           -- 証明者（Verifier）のDID
   challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
   credentialType : String     -- 証明対象のVC種類（"VerifierVC"など）
@@ -53,6 +57,10 @@ structure VerifierAuthZKPCore where
     Holderが特定の属性を証明するためのZKP。
     "私は特定の属性を満たすVCを保持している"ことを証明。
     例: "私は20歳以上である"、"私は運転免許を持っている"など
+
+    **ゼロ知識性の保証:**
+    HolderのDIDは含まれない。ZKPの本質は「誰が」ではなく「何を」証明するか。
+    Verifierは属性の正当性のみを検証し、Holderの身元は知らない。
 
     **双方向ナンス:**
     両方のナンスを明示的に格納することで、リプレイ攻撃耐性を実現。
@@ -65,8 +73,7 @@ structure VerifierAuthZKPCore where
     「他人のWalletバグから被害を受けない」設計原則を保証。
 -/
 structure HolderCredentialZKPCore where
-  core : W3CZKProofCore
-  holderDID : DID             -- 証明者（Holder）のDID
+  core : ZKProofCore
   holderNonce : Nonce         -- Holderが生成したnonce
   verifierNonce : Nonce       -- Verifierが生成したnonce
   claimedAttributes : String  -- 証明する属性の記述
@@ -137,7 +144,7 @@ inductive ZeroKnowledgeProof
 namespace ZeroKnowledgeProof
 
 /-- ZKPから基本構造を取得 -/
-def getCore : ZeroKnowledgeProof → W3CZKProofCore :=
+def getCore : ZeroKnowledgeProof → ZKProofCore :=
   fun zkp => match zkp with
   | valid vzkp => match vzkp.zkpType with
     | .inl verifier => verifier.core

@@ -107,7 +107,7 @@ noncomputable def holderRespond
     (msg : VerifierInitialMessage)
     (holderWallet : Wallet)
     (holderIdentity : Identity)
-    (humanApproval : Bool)       -- 人間の判断（外部入力）
+    (humanApproval : Bool) -- 人間の判断（外部入力）
     (_h_has_identity : holderIdentity ∈ holderWallet.identities)
     : Option HolderResponse :=
   -- 基本検証
@@ -137,7 +137,6 @@ noncomputable def holderRespond
         proofPurpose := "credential-presentation"
         created := { unixTime := 0 }  -- プレースホルダ
       }
-      holderDID := holderIdentity.did
       holderNonce := nonce1  -- Holderが生成したナンス
       verifierNonce := msg.nonce2  -- Verifierが生成したナンス
       claimedAttributes := "Identity verification"
@@ -270,7 +269,8 @@ noncomputable def executeMutualAuth
     : MutualAuthSession :=
   {
     verifierMessage := verifierMessage
-    holderResponse := holderRespond verifierMessage holderWallet holderIdentity humanApproval h_has_identity
+    holderResponse :=
+      holderRespond verifierMessage holderWallet holderIdentity humanApproval h_has_identity
   }
 
 -- ## 実装要件
@@ -322,8 +322,8 @@ noncomputable def executeMutualAuth
           proofPurpose: "credential-presentation",
           created: now()
         },
-        holderDID: "did:amatelus:holder456",
-        challengeNonce: nonce2,
+        holderNonce: nonce1,
+        verifierNonce: nonce2,
         claimedAttributes: "Identity verification"
       },
       timestamp: now()

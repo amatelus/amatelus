@@ -20,7 +20,7 @@ structure Identity where
   did : DID
   didDocument : DIDDocument
   secretKey : SecretKey
-  deriving Repr, DecidableEq
+  deriving Repr
 
 /-- 事前計算されたZKP -/
 structure PrecomputedZKP where

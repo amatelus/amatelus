@@ -22,14 +22,14 @@ structure Service where
     このイベントにより、プロトコルの実行履歴を構造的に記録できます。
 
     **重要な設計:**
-    - ZKPには**HolderのDIDが含まれる**（HolderCredentialZKPCore.holderDID）
-    - ZKPは暗号的に保護されているが、完璧ではない（最大 2^{-128}の確率で破られる）
-    - したがって、このイベントの記録は潜在的に名寄せのリスクを伴う
+    - ZKPには**HolderのDIDは含まれない**（ゼロ知識性の保証）
+    - ZKPは属性のみを証明し、身元は明かさない
+    - presentedDIDは別チャネル（DID提示）で送信されることを想定
 -/
 structure ZKPPresentationEvent where
-  presentedDID : DID                -- ZKPに含まれるDID（暗号的に保護）
+  presentedDID : DID                -- 別チャネルで送信されたDID（ZKPとは独立）
   service : Service                 -- 提示先のサービス
-  zkp : ZeroKnowledgeProof         -- 提示されたZKP
+  zkp : ZeroKnowledgeProof         -- 提示されたZKP（DIDは含まない）
   timestamp : Timestamp             -- 提示時刻
 
 /-- プロトコル実行履歴（トレース）
@@ -53,19 +53,17 @@ def ProtocolTrace := List ZKPPresentationEvent
     **意味:**
     `UsedIn did service trace`は、
     プロトコル実行履歴`trace`の中に、
-    `did`を含むZKPが`service`に提示されたイベントが存在することを表します。
+    `did`が`service`に提示されたイベントが存在することを表します。
 
     **プロトコルの実態:**
     AMATELUSでは、HolderがVerifier（サービス提供者）にZKPを提示する際、
-    ZKPに**HolderのDIDが含まれます**（HolderCredentialZKPCore.holderDIDフィールド）。
-
-    ZKPは暗号的に保護されていますが、攻撃者が暗号を破れば（最大 2^{-128}の確率で）
-    **DIDが露出する可能性があります**。
+    ZKPには**HolderのDIDは含まれません**（ゼロ知識性の保証）。
+    DIDは別チャネル（DID提示）で送信されます。
 
     **この述語が含意する暗号的リスク:**
 
-    - **暗号が安全な場合**（確率 1 - 2^{-128}）:
-      異なるサービスで異なるDIDを使用すれば、名寄せは不可能
+    - **DID間の関連付け**:
+      異なるサービスで異なるDIDを使用すれば、名寄せは困難
 
     - **暗号が破られた場合**（確率 ≤ 2^{-128}）:
       ZKPからDIDが露出し、名寄せが可能になる
@@ -132,11 +130,11 @@ theorem cryptographic_linkability_quantum_secure :
     暗号的に困難な計算が必要である。
 
     **前提条件（UsedInの意味）:**
-    - `trace`: プロトコル全体のZKP提示イベントの記録
-    - `UsedIn did₁ service₁ trace`: traceの中に、did₁を含むZKPがservice₁に提示されたイベントが存在
-    - `UsedIn did₂ service₂ trace`: traceの中に、did₂を含むZKPがservice₂に提示されたイベントが存在
-    - ZKPにはDIDが含まれる（HolderCredentialZKPCore.holderDID）
-    - ZKPは暗号的に保護されているが、完璧ではない
+    - `trace`: プロトコル全体のDID提示イベントの記録
+    - `UsedIn did₁ service₁ trace`: traceの中に、did₁がservice₁に提示されたイベントが存在
+    - `UsedIn did₂ service₂ trace`: traceの中に、did₂がservice₂に提示されたイベントが存在
+    - ZKPにはDIDは含まれない（ゼロ知識性の保証）
+    - DIDは別チャネルで送信される
 
     **攻撃シナリオ:**
     1. 攻撃者がtraceを観測（複数のサービスからZKPを収集）
@@ -152,27 +150,23 @@ theorem cryptographic_linkability_quantum_secure :
     **具体的な確率的保証**として理解すべきである。
 
     **証明の構造:**
-    ZKPから2つのDIDを関連付けるには、以下のいずれかが必要：
+    異なるサービスで使用された2つのDIDを関連付けるには、以下が必要：
 
-    1. **ZKP暗号の解読**:
-       ZKPの暗号的保護を破ってDIDを抽出する
-       → 量子計算機でも128ビットの計算量が必要
+    1. **DID間の暗号的関連付け（ハッシュ衝突の発見）**:
+       DIDはハッシュ値に基づくため、ハッシュ関数の衝突耐性により
+       量子計算機でも128ビットの計算量が必要
+       （didLinkabilitySecurityで定義）
+
+    2. **鍵ペアの関連性の発見**:
+       keyPairIndependenceSecurityにより、量子計算機でも128ビットの計算量が必要
+       （SecurityAssumptions.keyPairIndependence_quantum_secureで保証）
+
+    3. **ZKPの零知識性**:
+       ZKPにはDIDは含まれないが、ZKPの統計的性質から秘密情報を抽出するには
+       量子計算機でも128ビットの計算量が必要
        （zero_knowledge_property_quantum_secureで保証）
 
-    2. **抽出されたDID間の関連付け**:
-       仮にZKP暗号を破ってDIDを抽出できたとしても、
-       異なるDID間の関連性を発見するには以下が必要：
-
-       a. 鍵ペアの関連性の発見:
-          keyPairIndependenceSecurityにより、量子計算機でも128ビットの計算量が必要
-          （SecurityAssumptions.keyPairIndependence_quantum_secureで保証）
-
-       b. 暗号的関連付け（ハッシュ衝突の発見）:
-          DIDはハッシュ値に基づくため、ハッシュ関数の衝突耐性により
-          量子計算機でも128ビットの計算量が必要
-          （didLinkabilitySecurityで定義）
-
-    3. **外部情報による関連付け**:
+    4. **外部情報による関連付け**:
        プロトコルの範囲外（実装レベルやソーシャルエンジニアリング）
        これは暗号プロトコルでは防げない
 
@@ -304,7 +298,8 @@ theorem zkp_no_information_leakage :
     これらの保証は、具体的な攻撃成功確率（最大 2^{-128}）に基づいており、
     暗号強度に依存した確率的保証である。
 -/
-def ComprehensivePrivacy (did₁ did₂ : DID) (service₁ service₂ : Service) (trace : ProtocolTrace) : Prop :=
+def ComprehensivePrivacy (did₁ did₂ : DID) (service₁ service₂ : Service)
+    (trace : ProtocolTrace) : Prop :=
   -- DID間の名寄せには暗号的計算コストが必要（traceから名寄せ）
   (service₁ ≠ service₂ →
    UsedIn did₁ service₁ trace →

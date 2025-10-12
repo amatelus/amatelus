@@ -345,17 +345,25 @@ def checkTrustChainRecursive
           -- ValidDIDをUnknownDIDに変換して再帰
           checkTrustChainRecursive dict trustedRoots (UnknownDID.valid anchorValidDID) depth'
 
-/-- 信頼チェーンの検証 -/
+/-- 信頼チェーンの検証
+
+    **設計思想:**
+    - AMATELUSは型システムで1階層制限を保証
+    - maxChainDepthは常にMaxChainDepth（定数1）を使用
+    - 信頼するTrustAnchorのリストはWallet.trustedAnchorsから取得
+    - TrustPolicy構造体は不要
+-/
 def verifyTrustChain
     (dict : TrustAnchorDict)
-    (policy : TrustPolicy)
     (vc : UnknownVC) : Prop :=
   -- 発行者DIDを取得
   let issuerDID := UnknownVC.getIssuer vc
+  -- 信頼するトラストアンカーのリスト（dictのキー）
+  let trustedRoots := dict.map (fun (did, _) => UnknownDID.valid did)
   -- 発行者がルート認証局リストに含まれているか確認
-  (issuerDID ∈ policy.trustedRoots) ∨
-  -- または、信頼チェーンを辿る（深さ制限あり）
-  (checkTrustChainRecursive dict policy.trustedRoots issuerDID policy.maxChainDepth)
+  (issuerDID ∈ trustedRoots) ∨
+  -- または、信頼チェーンを辿る（深さはMaxChainDepth = 1に固定）
+  (checkTrustChainRecursive dict trustedRoots issuerDID MaxChainDepth)
 
 /-- VerifierがVCを検証 -/
 def verifyCredential
@@ -364,8 +372,9 @@ def verifyCredential
     : Prop :=
   -- 暗号学的検証
   UnknownVC.isValid vc ∧
-  -- 信頼ポリシーに基づく検証（VerifierのWalletから信頼するトラストアンカー辞書を使用）
-  verifyTrustChain verifier.wallet.trustedAnchors verifier.trustPolicy vc
+  -- 信頼チェーン検証（いずれかのWalletのtrustedAnchorsで検証が通る）
+  (∃ wallet ∈ verifier.wallets,
+    verifyTrustChain wallet.trustedAnchors vc)
 
 end Verifier
 
@@ -411,21 +420,17 @@ theorem wallet_store_preserves_validity :
 
     **証明の構造:**
     1. UnknownVC.isValid vc が成立（暗号学的に有効）
-    2. getIssuer vcがtrustedRootsに含まれる（Verifierが信頼）
-    3. Verifier.verifyCredentialの定義により、両方の条件を満たせば検証成功
+    2. いずれかのWalletでverifyTrustChainが成立する（Verifierが信頼）
+    3. verifyCredentialが成立する
+
+    **注:** この定理は自明に成立する（verifyCredentialの定義そのもの）
 -/
 theorem verifier_accepts_valid_credential :
   ∀ (verifier : Verifier) (vc : UnknownVC),
     UnknownVC.isValid vc →
-    UnknownVC.getIssuer vc ∈ verifier.trustPolicy.trustedRoots →
+    (∃ wallet ∈ verifier.wallets, Verifier.verifyTrustChain wallet.trustedAnchors vc) →
     verifier.verifyCredential vc := by
-  intro verifier vc h_valid h_trusted
+  intro verifier vc h_valid h_trust
   -- Verifier.verifyCredentialの定義を展開
   unfold Verifier.verifyCredential
-  constructor
-  · -- 暗号学的検証
-    exact h_valid
-  · -- 信頼チェーン検証
-    unfold Verifier.verifyTrustChain
-    left  -- issuerDID ∈ trustedRoots を選択
-    exact h_trusted
+  exact ⟨h_valid, h_trust⟩

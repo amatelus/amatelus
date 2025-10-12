@@ -32,26 +32,6 @@ structure PrecomputedZKP where
   partialProof : Proof
   publicStatement : PublicInput
 
-/-- 認証局の種類 -/
-inductive AuthorityType
-  | Government           -- 政府機関
-  | CertifiedCA          -- 認定認証局
-  | IndustrialStandard   -- 業界標準機関
-  deriving Repr, DecidableEq
-
-/-- ルート認証局証明書 -/
-structure RootAuthorityCertificate where
-  -- 証明書の所有者（ルート認証局のDID）
-  subject : UnknownDID
-  -- 証明書の種類（政府機関、認定CA等）
-  authorityType : AuthorityType
-  -- 発行可能なクレームドメイン
-  authorizedDomains : List ClaimTypeBasic
-  -- 自己署名（ルート認証局は自己署名）
-  signature : Signature
-  -- 有効期限
-  validUntil : Timestamp
-
 /-- トラストアンカー情報
 
     トラストアンカーに関連する情報を保持する。
@@ -150,9 +130,6 @@ structure Wallet where
 
   -- 保管されている資格情報（検証済みのみ）
   credentials : List ValidVC
-
-  -- 特別な証明書（ルート認証局の場合）
-  rootAuthorityCertificate : Option RootAuthorityCertificate
 
   -- ZKP事前計算データ
   precomputedProofs : List PrecomputedZKP
@@ -397,18 +374,16 @@ theorem fake_verifier_fails :
 
 end VerifierAuthMessage
 
-/-- 信頼ポリシーの定義 -/
-structure TrustPolicy where
-  -- 信頼するルート認証局のリスト
-  trustedRoots : List UnknownDID
-  -- 最大信頼チェーン深さ
-  maxChainDepth : Nat
-  -- 必須のクレームタイプ
-  requiredClaimTypes : List ClaimTypeBasic
-
 /-- Holder: VCを保持し、必要に応じて提示する主体
 
-    Holderは1つ以上のWalletを保持する。
+    **DID/VCモデルにおける基本設計:**
+    - DID/VCの世界では、全員が基本的にHolderである
+    - 役割（Issuer、Verifier等）は状況に応じて変わるものであり、固定的ではない
+    - 一般人でも家族や友達同士でVCを発行できる未来を想定
+
+    **Wallet保持:**
+    - すべての主体は1つ以上のWalletを保持する
+    - Wallet内にidentities（DID）、credentials（VC）、trustedAnchorsが含まれる
 
     **設計思想（自己責任）:**
     - Walletの正規性（Wallet.isValid）は不変条件として要求しない
@@ -422,61 +397,66 @@ structure Holder where
   -- 不変条件: 少なくとも1つのWalletを持つ
   wallets_nonempty : wallets ≠ []
 
-/-- トラストアンカー: 自己署名のルート認証局
+/-- トラストアンカー: 自己署名のルート認証局として振る舞うHolder
 
-    **設計思想（自己責任）:**
-    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
-    - バグのあるWalletで不正な署名を生成しても、Verifierの暗号的検証で弾かれる
-    - トラストアンカーの運営者がWalletを選択するのは自己責任
+    **DID/VCモデルにおける役割:**
+    - トラストアンカーは固定的な役割ではなく、状況依存の役割
+    - Holderが自己署名のTrustAnchorVCとClaimDefinitionVCを持つことで、
+      トラストアンカーとして振る舞うことができる
+    - 型としてはHolderと同一（エイリアス）
+
+    **発行権限の管理:**
+    - Wallet内の自己署名ClaimDefinitionVCから発行権限を取得
+    - ClaimDefinitionVCは公開されており、誰でも確認可能
+    - VC発行時は、Wallet.credentialsから適切なClaimDefinitionVCを探して使用
 -/
-structure TrustAnchor where
-  wallet : Wallet
-  -- この発行者が発行できるクレームIDのリスト
-  -- （実際にはクレーム定義VCで公開されている）
-  authorizedClaimIDs : List ClaimID
-  -- ルート認証局証明書（自己署名）
-  rootCertificate : RootAuthorityCertificate
+abbrev TrustAnchor := Holder
 
-/-- 受託者: 上位認証局から認証を受けた発行者
+/-- 受託者: 上位認証局から認証を受けたVCを発行するHolder
 
-    **設計思想（自己責任）:**
-    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
-    - バグのあるWalletで不正な署名を生成しても、Verifierの暗号的検証で弾かれる
-    - 受託者の運営者がWalletを選択するのは自己責任
+    **DID/VCモデルにおける役割:**
+    - 受託者は固定的な役割ではなく、状況依存の役割
+    - HolderがTrustAnchorから発行されたTrusteeVCを持つことで、
+      受託者として振る舞うことができる
+    - 型としてはHolderと同一（エイリアス）
+
+    **発行権限の管理:**
+    - Wallet内のTrusteeVCから発行権限を取得
+    - 一つのHolderが複数のTrustAnchorから異なる権限委譲を受けることが可能
+    - VC発行時は、Wallet.credentialsから適切なTrusteeVCを探して使用
 -/
-structure Trustee where
-  wallet : Wallet
-  -- この発行者が発行できるクレームIDのリスト
-  -- （TrusteeVCに含まれるauthorizedClaimIDsと一致）
-  authorizedClaimIDs : List ClaimID
-  -- 発行者としての認証情報（上位認証局から発行されたVC）
-  issuerCredential : UnknownVC
+abbrev Trustee := Holder
 
-/-- Issuer: VCを発行する権限を持つ主体
-    発行者はトラストアンカー（自己署名のルート認証局）または
-    受託者（上位認証局から認証を受けた発行者）のいずれかである -/
-inductive Issuer
-  | trustAnchor : TrustAnchor → Issuer
-  | trustee : Trustee → Issuer
+/-- Issuer: VCを発行する権限を持つHolder
 
-/-- Verifier: VCを検証する主体
+    **DID/VCモデルにおける役割:**
+    - Issuerは固定的な役割ではなく、VC発行時の状況依存の役割
+    - 任意のHolderがVC発行者になることができる
+    - トラストアンカーや受託者といった区別は、Wallet内のVCによって決まる
+    - 型としてはHolderと同一（エイリアス）
 
-    偽警官対策: 検証者はWalletを持ち、トラストアンカーから発行された
-    VerifierVCを保持する。検証時には、Holderに対してこれらのVerifierVCを
-    提示し、自身が正当な検証者であることを証明する。
-
-    **設計思想（自己責任）:**
-    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
-    - Verifierは暗号的検証のみに依存し、自身のWallet実装には依存しない
-      （`verifier_cryptographic_soundness`定理で証明済み）
-    - 検証者の運営者がWalletを選択するのは自己責任
+    **発行権限:**
+    - ClaimDefinitionVC（自己署名）またはTrusteeVC（委譲）を持つことで発行権限を得る
+    - 一般人でも家族や友達にVCを発行できる（W3C VC仕様に準拠）
 -/
-structure Verifier where
-  -- アイデンティティと資格情報を保持するWallet
-  -- Wallet内のcredentialsには、トラストアンカーから発行されたVerifierVCが含まれる
-  wallet : Wallet
-  -- 検証ポリシー（どの発行者を信頼するか等）
-  trustPolicy : TrustPolicy
+abbrev Issuer := Holder
+
+/-- Verifier: VCを検証するHolder
+
+    **DID/VCモデルにおける役割:**
+    - Verifierは固定的な役割ではなく、VC検証時の状況依存の役割
+    - 任意のHolderがVC検証者になることができる
+    - 型としてはHolderと同一（エイリアス）
+
+    **偽警官対策:**
+    - 検証者もWalletを持ち、トラストアンカーから発行されたVerifierVCを保持できる
+    - 検証時には、Holderに対してこれらのVerifierVCを提示し、自身が正当な検証者であることを証明できる
+
+    **信頼ポリシー:**
+    - どのTrustAnchorを信頼するかは、Wallet.trustedAnchorsで管理
+    - 各Holderが独自の信頼ポリシーを持つ
+-/
+abbrev Verifier := Holder
 
 -- ## AMATELUSプロトコルの安全性定理
 --

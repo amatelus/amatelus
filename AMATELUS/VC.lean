@@ -253,6 +253,13 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
 
 -- ## Helper Functions for Context and VCType conversion
 
+/-- 認証局の種類 -/
+inductive AuthorityType
+  | Government           -- 政府機関
+  | CertifiedCA          -- 認定認証局
+  | IndustrialStandard   -- 業界標準機関
+  deriving Repr, DecidableEq
+
 /-- VCの基底構造
 
     すべてのVC型が共通して持つフィールド。
@@ -270,6 +277,34 @@ structure VCBase where
   -- None = トラストアンカー直接発行（0階層）
   -- Some anchorDID = 委任者経由発行（1階層）
   delegator : Option ValidDID
+  deriving Repr
+
+/-- トラストアンカーVC
+
+    トラストアンカーが自己署名で発行する、自身の権限を証明するVC。
+    従来のPKIにおける自己署名ルート証明書に相当するが、DID/VCモデルに適合。
+
+    **使用例:**
+    政府（トラストアンカー）が自己発行するVC：
+    - issuer: 政府のDID
+    - subject: 政府のDID（自己発行）
+    - delegator: None（0階層：自己署名）
+    - authorityType: AuthorityType.Government
+    - authorizedDomains: ["NationalID", "Residence", ...]
+
+    **DID/VCモデルにおける信頼の起点:**
+    - トラストアンカーは「信頼されたDID + DIDDocument」として表現
+    - このVCは自身の権限範囲を宣言する
+    - 検証者は、信頼するトラストアンカーのDIDとこのVCをWalletに登録
+
+    **設計根拠:**
+    - PKI的な別構造の証明書（RootAuthorityCertificate）は不要
+    - VCとして統一的に扱うことで、検証ロジックが単純化される
+-/
+structure TrustAnchorVC extends VCBase where
+  -- トラストアンカー固有のクレーム
+  authorityType : AuthorityType           -- 認証局の種類（政府機関、認定CA等）
+  authorizedDomains : List ClaimTypeBasic -- 発行可能なクレームドメイン
   deriving Repr
 
 /-- 受託者認証VC
@@ -370,6 +405,7 @@ structure ClaimDefinitionVC extends VCBase where
 
     すべての具体的なVCタイプの和型。
     AMATELUSプロトコルで扱われるVCは、以下のいずれかの型を持つ：
+    - TrustAnchorVC: トラストアンカー自己証明（DID/VCモデルにおける信頼の起点）
     - TrusteeVC: 受託者認証
     - NationalIDVC: 国民識別情報
     - AttributeVC: 一般属性情報
@@ -392,6 +428,7 @@ structure ClaimDefinitionVC extends VCBase where
     - 各VC型は型固有のフィールドを追加で持つ
 -/
 inductive ValidVC
+  | trustAnchorVC : TrustAnchorVC → ValidVC
   | trusteeVC : TrusteeVC → ValidVC
   | nationalIDVC : NationalIDVC → ValidVC
   | attributeVC : AttributeVC → ValidVC
@@ -402,6 +439,7 @@ namespace ValidVC
 
 /-- ValidVCからW3C基本構造を取得 -/
 def getCore : ValidVC → W3C.Credential
+  | trustAnchorVC vc => vc.w3cCredential
   | trusteeVC vc => vc.w3cCredential
   | nationalIDVC vc => vc.w3cCredential
   | attributeVC vc => vc.w3cCredential
@@ -410,6 +448,7 @@ def getCore : ValidVC → W3C.Credential
 
 /-- ValidVCから発行者DIDを取得 -/
 def getIssuerDID : ValidVC → ValidDID
+  | trustAnchorVC vc => vc.issuerDID
   | trusteeVC vc => vc.issuerDID
   | nationalIDVC vc => vc.issuerDID
   | attributeVC vc => vc.issuerDID
@@ -418,6 +457,7 @@ def getIssuerDID : ValidVC → ValidDID
 
 /-- ValidVCから主体DIDを取得 -/
 def getSubjectDID : ValidVC → ValidDID
+  | trustAnchorVC vc => vc.subjectDID
   | trusteeVC vc => vc.subjectDID
   | nationalIDVC vc => vc.subjectDID
   | attributeVC vc => vc.subjectDID
@@ -426,6 +466,7 @@ def getSubjectDID : ValidVC → ValidDID
 
 /-- ValidVCから署名を取得 -/
 def getSignature : ValidVC → Signature
+  | trustAnchorVC vc => vc.signature
   | trusteeVC vc => vc.signature
   | nationalIDVC vc => vc.signature
   | attributeVC vc => vc.signature
@@ -434,6 +475,7 @@ def getSignature : ValidVC → Signature
 
 /-- ValidVCから委任者を取得 -/
 def getDelegator : ValidVC → Option ValidDID
+  | trustAnchorVC vc => vc.delegator
   | trusteeVC vc => vc.delegator
   | nationalIDVC vc => vc.delegator
   | attributeVC vc => vc.delegator

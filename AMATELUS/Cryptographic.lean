@@ -142,7 +142,7 @@ noncomputable def cryptographic_verify (vc : UnknownVC) (issuerPK : PublicKey) :
   match vc with
   | UnknownVC.valid vvc =>
       -- ValidVCの場合: 署名を検証
-      amatSignature.verify issuerPK [] vvc.signature
+      amatSignature.verify issuerPK [] (ValidVC.getSignature vvc)
   | UnknownVC.invalid _ =>
       -- InvalidVCの場合: 署名がないため検証失敗
       false

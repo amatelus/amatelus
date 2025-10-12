@@ -266,6 +266,25 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
 
 -- ## Helper Functions for Context and VCType conversion
 
+/-- VCの基底構造
+
+    すべてのVC型が共通して持つフィールド。
+-/
+structure VCBase where
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
+  -- 発行者DID（型レベルで正規のDIDを保証）
+  issuerDID : ValidDID
+  -- 主体DID（型レベルで正規のDIDを保証）
+  subjectDID : ValidDID
+  -- デジタル署名（型レベルで保証）
+  signature : Signature
+  -- 委任者DID（1階層制限の型システム保証）
+  -- None = トラストアンカー直接発行（0階層）
+  -- Some anchorDID = 委任者経由発行（1階層）
+  delegator : Option ValidDID
+  deriving Repr
+
 /-- 受託者認証VC
 
     トラストアンカーが受託者に発行する認証クレデンシャル。
@@ -282,9 +301,7 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
     - このVCは`delegator: Some anchorDID`を持つため、1階層のVC
     - 受託者が発行するVCは`delegator: Some anchorDID`を持つ必要があり、再委任は不可能
 -/
-structure TrusteeVC where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
+structure TrusteeVC extends VCBase where
   -- 受託者固有のクレーム
   authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
   trustLevel : Nat                    -- 信頼レベル (1-5)
@@ -299,9 +316,7 @@ structure TrusteeVC where
     - トラストアンカーが直接発行: `delegator: None`（0階層）
     - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
-structure NationalIDVC where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
+structure NationalIDVC extends VCBase where
   -- 国民ID固有のクレーム
   anonymousHashId : AnonymousHashIdentifier   -- 匿名ハッシュ識別子
   auditSection : AuditSectionID                -- 監査区分識別子
@@ -316,9 +331,7 @@ structure NationalIDVC where
     - トラストアンカーが直接発行: `delegator: None`（0階層）
     - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
-structure AttributeVC where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
+structure AttributeVC extends VCBase where
   -- 属性固有のクレーム
   claims : Claims                             -- 任意の構造化クレーム
   deriving Repr
@@ -334,9 +347,7 @@ structure AttributeVC where
     **1階層制限:**
     - 通常、トラストアンカーが直接発行: `delegator: None`（0階層）
 -/
-structure VerifierVC where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
+structure VerifierVC extends VCBase where
   -- 検証者固有のクレーム
   authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
   verificationScope : String                          -- 検証の範囲（地域、組織など）
@@ -358,16 +369,17 @@ structure VerifierVC where
     **1階層制限:**
     - トラストアンカーが自己署名で発行: `delegator: None`（0階層）
 -/
-structure ClaimDefinitionVC where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
+structure ClaimDefinitionVC extends VCBase where
   -- クレーム定義固有のフィールド
   claimID : ClaimID                     -- クレームの一意な識別子
   claimDescription : String             -- クレームの説明（人間可読）
   schema : String                       -- クレームのスキーマ（JSON Schema等）
   deriving Repr
 
-/-- VCタイプの基本構造（型のみ）
+/-- 正規の検証可能資格情報 (Valid Verifiable Credential)
+
+    署名検証が成功するVC。
+    暗号学的に正しく発行されたVCは、署名検証に成功する。
 
     すべての具体的なVCタイプの和型。
     AMATELUSプロトコルで扱われるVCは、以下のいずれかの型を持つ：
@@ -376,30 +388,6 @@ structure ClaimDefinitionVC where
     - AttributeVC: 一般属性情報
     - VerifierVC: 検証者認証
     - ClaimDefinitionVC: クレーム定義（トラストアンカーが自己署名で公開）
--/
-inductive VCTypeCore
-  | trusteeVC : TrusteeVC → VCTypeCore
-  | nationalIDVC : NationalIDVC → VCTypeCore
-  | attributeVC : AttributeVC → VCTypeCore
-  | verifierVC : VerifierVC → VCTypeCore
-  | claimDefinitionVC : ClaimDefinitionVC → VCTypeCore
-
-namespace VCTypeCore
-
-/-- VCTypeからW3C基本構造を取得 -/
-def getCore : VCTypeCore → W3C.Credential
-  | trusteeVC vc => vc.w3cCredential
-  | nationalIDVC vc => vc.w3cCredential
-  | attributeVC vc => vc.w3cCredential
-  | verifierVC vc => vc.w3cCredential
-  | claimDefinitionVC vc => vc.w3cCredential
-
-end VCTypeCore
-
-/-- 正規の検証可能資格情報 (Valid Verifiable Credential)
-
-    署名検証が成功するVC。
-    暗号学的に正しく発行されたVCは、署名検証に成功する。
 
     **設計思想:**
     - VCの発行はIssuerの責任（署名は暗号ライブラリで生成）
@@ -410,25 +398,62 @@ end VCTypeCore
     - Ed25519署名検証などの暗号的詳細を隠蔽
     - プロトコルの安全性証明が簡潔になる
     - Issuer実装の違いを抽象化（同じプロトコルで多様なIssuer実装が可能）
+
+    **VCBase継承:**
+    - 共通フィールド（w3cCredential, issuerDID, subjectDID, signature, delegator）は
+      各VC型がVCBaseを継承することで保持される
+    - 各VC型は型固有のフィールドを追加で持つ
 -/
-structure ValidVC where
-  -- VCの種類
-  vcType : VCTypeCore
-  -- 発行者DID（型レベルで正規のDIDを保証）
-  issuerDID : ValidDID
-  -- 主体DID（型レベルで正規のDIDを保証）
-  subjectDID : ValidDID
-  -- デジタル署名（型レベルで保証）
-  signature : Signature
-  -- 委任者DID（1階層制限の型システム保証）
-  -- None = トラストアンカー直接発行（0階層）
-  -- Some anchorDID = 委任者経由発行（1階層）
-  delegator : Option ValidDID
-  -- 不変条件: getIssuerDID (getCore vcType).issuer = some (UnknownDID.valid issuerDID)
-  -- 不変条件: getSubjectDID (getCore vcType).credentialSubject = some (UnknownDID.valid subjectDID)
-  -- 不変条件: amatSignature.verify (getCore vcType) signature = true
-  -- 暗号学的に正しく発行されたという不変条件（抽象化）
-  -- 実際のEd25519署名検証などの詳細は抽象化される
+inductive ValidVC
+  | trusteeVC : TrusteeVC → ValidVC
+  | nationalIDVC : NationalIDVC → ValidVC
+  | attributeVC : AttributeVC → ValidVC
+  | verifierVC : VerifierVC → ValidVC
+  | claimDefinitionVC : ClaimDefinitionVC → ValidVC
+
+namespace ValidVC
+
+/-- ValidVCからW3C基本構造を取得 -/
+def getCore : ValidVC → W3C.Credential
+  | trusteeVC vc => vc.w3cCredential
+  | nationalIDVC vc => vc.w3cCredential
+  | attributeVC vc => vc.w3cCredential
+  | verifierVC vc => vc.w3cCredential
+  | claimDefinitionVC vc => vc.w3cCredential
+
+/-- ValidVCから発行者DIDを取得 -/
+def getIssuerDID : ValidVC → ValidDID
+  | trusteeVC vc => vc.issuerDID
+  | nationalIDVC vc => vc.issuerDID
+  | attributeVC vc => vc.issuerDID
+  | verifierVC vc => vc.issuerDID
+  | claimDefinitionVC vc => vc.issuerDID
+
+/-- ValidVCから主体DIDを取得 -/
+def getSubjectDID : ValidVC → ValidDID
+  | trusteeVC vc => vc.subjectDID
+  | nationalIDVC vc => vc.subjectDID
+  | attributeVC vc => vc.subjectDID
+  | verifierVC vc => vc.subjectDID
+  | claimDefinitionVC vc => vc.subjectDID
+
+/-- ValidVCから署名を取得 -/
+def getSignature : ValidVC → Signature
+  | trusteeVC vc => vc.signature
+  | nationalIDVC vc => vc.signature
+  | attributeVC vc => vc.signature
+  | verifierVC vc => vc.signature
+  | claimDefinitionVC vc => vc.signature
+
+/-- ValidVCから委任者を取得 -/
+def getDelegator : ValidVC → Option ValidDID
+  | trusteeVC vc => vc.delegator
+  | nationalIDVC vc => vc.delegator
+  | attributeVC vc => vc.delegator
+  | verifierVC vc => vc.delegator
+  | claimDefinitionVC vc => vc.delegator
+
+end ValidVC
 
 /-- 不正な検証可能資格情報 (Invalid Verifiable Credential)
 
@@ -444,8 +469,8 @@ structure ValidVC where
     - プロトコルの安全性には影響しない（当該VCのみが無効になる）
 -/
 structure InvalidVC where
-  -- VCの種類
-  vcType : VCTypeCore
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- 不正な理由（デバッグ用、プロトコルには不要）
   reason : String
 
@@ -479,13 +504,13 @@ namespace UnknownVC
 /-- VCから基本構造を取得 -/
 def getCore : UnknownVC → W3C.Credential :=
   fun vc => match vc with
-  | valid vvc => VCTypeCore.getCore vvc.vcType
-  | invalid ivc => VCTypeCore.getCore ivc.vcType
+  | valid vvc => ValidVC.getCore vvc
+  | invalid ivc => ivc.w3cCredential
 
 /-- VCの発行者をDIDとして取得 -/
 def getIssuer (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => UnknownDID.valid vvc.issuerDID  -- ValidDIDをUnknownDIDに変換
+  | valid vvc => UnknownDID.valid (ValidVC.getIssuerDID vvc)
   | invalid _ =>
       -- InvalidVCの場合、issuerがDID形式でなければダミーDIDを返す
       -- getIssuerDIDはOption ValidDIDを返すので、UnknownDID.validに変換
@@ -499,7 +524,7 @@ def getIssuer (vc : UnknownVC) : UnknownDID :=
 /-- VCの主体をDIDとして取得 -/
 def getSubject (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => UnknownDID.valid vvc.subjectDID  -- ValidDIDをUnknownDIDに変換
+  | valid vvc => UnknownDID.valid (ValidVC.getSubjectDID vvc)
   | invalid _ =>
       -- InvalidVCの場合、subjectがDID形式でなければダミーDIDを返す
       -- getSubjectDIDはOption ValidDIDを返すので、UnknownDID.validに変換
@@ -513,12 +538,12 @@ def getSubject (vc : UnknownVC) : UnknownDID :=
 /-- VCの委任者を取得（1階層制限の検証に使用）
 
     **設計:**
-    - ValidVC: delegatorフィールドを直接返す（Option ValidDID）
+    - ValidVC: ValidVC経由でdelegatorを取得（Option ValidDID）
     - InvalidVC: 委任者情報がないため、noneを返す
 -/
 def getDelegator (vc : UnknownVC) : Option ValidDID :=
   match vc with
-  | valid vvc => vvc.delegator  -- Option ValidDIDを直接返す
+  | valid vvc => ValidVC.getDelegator vvc
   | invalid _ => none  -- InvalidVCは委任者情報を持たない
 
 /-- VC検証関数（定義として実装）

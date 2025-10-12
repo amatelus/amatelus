@@ -87,16 +87,18 @@ theorem vc_depth_at_most_one :
 def isDirectTrustVC (vc : UnknownVC) (wallet : Wallet) : Prop :=
   match vc with
   | UnknownVC.valid vvc =>
-      match vvc.delegator with
+      let delegator := ValidVC.getDelegator vvc
+      let issuerDID := ValidVC.getIssuerDID vvc
+      match delegator with
       | none =>
           -- 0階層: トラストアンカー直接発行
-          (TrustAnchorDict.lookup wallet.trustedAnchors vvc.issuerDID).isSome
+          (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome
       | some anchorValidDID =>
           -- 1階層: 委任者経由発行
-          let issuerDID := UnknownDID.valid vvc.issuerDID
+          let issuerUnknownDID := UnknownDID.valid issuerDID
           match TrustAnchorDict.lookup wallet.trustedAnchors anchorValidDID with
           | none => False  -- トラストアンカーが信頼されていない
-          | some info => issuerDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
+          | some info => issuerUnknownDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
   | UnknownVC.invalid _ => False  -- 不正なVCは信頼されない
 
 -- ## 直接信頼関係の定義

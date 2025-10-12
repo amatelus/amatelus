@@ -29,7 +29,7 @@ def storeCredential
     (wallet : Wallet)
     (vc : ValidVC)
     (holderDID : ValidDID)
-    (_h_subject : vc.subjectDID = holderDID)
+    (_h_subject : ValidVC.getSubjectDID vc = holderDID)
     (_h_has_did : Wallet.hasDID wallet holderDID) : Wallet :=
   { wallet with
     credentials := vc :: wallet.credentials }
@@ -255,22 +255,19 @@ noncomputable def issueCredential
     credentialSubject := [didToCredentialSubject (UnknownDID.valid subjectDID)]
     credentialStatus := none
   }
-  -- AttributeVCとして構築
+  -- AttributeVCとして構築（VCBaseフィールドを含む）
   let attributeVC : AttributeVC := {
+    -- VCBase fields
     w3cCredential := w3cCore
-    claims := claims
-  }
-  -- VCTypeとして構築
-  let vcType : VCTypeCore := VCTypeCore.attributeVC attributeVC
-  -- ValidVCとして構築（委任者なし = 直接発行）
-  -- issuerDIDとsubjectDIDは既にValidDIDなので、そのまま使用
-  let validVC : ValidVC := {
-    vcType := vcType
     issuerDID := issuerDID
     subjectDID := subjectDID
     signature := signature
     delegator := none  -- 委任なし（トラストアンカー直接発行）
+    -- AttributeVC specific fields
+    claims := claims
   }
+  -- ValidVCとして構築
+  let validVC : ValidVC := ValidVC.attributeVC attributeVC
   UnknownVC.valid validVC
 
 /-- 定理: ValidDIDで発行されたVCは暗号学的に有効である
@@ -395,7 +392,7 @@ end Verifier
 -/
 theorem wallet_store_preserves_validity :
   ∀ (wallet : Wallet) (vc : ValidVC) (holderDID : ValidDID)
-    (h_subject : vc.subjectDID = holderDID)
+    (h_subject : ValidVC.getSubjectDID vc = holderDID)
     (h_has_did : Wallet.hasDID wallet holderDID),
     -- 前提: walletが正規
     Wallet.isValid wallet →

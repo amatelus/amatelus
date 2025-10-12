@@ -27,10 +27,9 @@ namespace Holder
 -/
 def storeCredential
     (wallet : Wallet)
-    (vc : UnknownVC)
-    (holderDID : UnknownDID)
-    (_h_valid : UnknownVC.isValid vc)
-    (_h_subject : UnknownVC.getSubject vc = holderDID)
+    (vc : ValidVC)
+    (holderDID : ValidDID)
+    (_h_subject : vc.subjectDID = holderDID)
     (_h_has_did : Wallet.hasDID wallet holderDID) : Wallet :=
   { wallet with
     credentials := vc :: wallet.credentials }
@@ -38,8 +37,8 @@ def storeCredential
 /-- Walletから特定のVCを取得 -/
 def getCredential
     (wallet : Wallet)
-    (predicate : UnknownVC → Bool)
-    : Option UnknownVC :=
+    (predicate : ValidVC → Bool)
+    : Option ValidVC :=
   wallet.credentials.find? predicate
 
 /-- ZKP生成の材料をまとめた構造体
@@ -218,91 +217,80 @@ def standardVCContext : Context :=
 def standardAttributeVCType : VCType :=
   { value := "UnknownVC,AttributeCredential" }
 
-/-- 失効情報を生成（初期状態：失効なし）
+/-- VCを発行する関数
 
-    **Stage 6設計:**
-    RevocationInfoはOption W3C.CredentialStatusなので、
-    失効情報がない場合はnoneを返します。
--/
-def noRevocationInfo : RevocationInfo :=
-  none
+    **AMATELUSの設計:**
+    - IssuerはDIDConn（またはZKP）で接続確立済み
+    - IssuerはHolderのValidDIDを既に取得・検証済み
+    - IssuerとSubjectのDIDは両方ともValidDIDである必要がある
 
-/-- VCを発行する関数（誰でも実行可能）
-
-    **W3C VC仕様に準拠した設計:**
-    - DIDと秘密鍵があれば誰でもVCを発行できる
-    - 「権限」や「認可」のチェックは一切なし
-    - Verifierが信頼ポリシーに基づいて受け入れ判断を行う
+    **DIDConnフロー:**
+    1. HolderがDIDDocumentを提示
+    2. Issuerがチャレンジ・レスポンスで秘密鍵所有権を検証
+    3. 検証成功 → Issuerは ValidDID を取得
 
     **実装:**
     1. Claimsに署名を生成（amatSignature.sign）
     2. AttributeVCとして構築
     3. UnknownVC.validとして返す
 
-    **重要な原則:**
-    - 発行は自由（技術的に制限不可能）
-    - 信頼は選択（Verifierのポリシー）
-    - これにより「Issuer」という特別な役割は不要
+    **W3C VC仕様との関係:**
+    - 「権限」や「認可」のチェックは一切なし
+    - Verifierが信頼ポリシーに基づいて受け入れ判断を行う
 -/
 noncomputable def issueCredential
-    (issuerDID : UnknownDID)
+    (issuerDID : ValidDID)
     (issuerSecretKey : SecretKey)
-    (subjectDID : UnknownDID)
+    (subjectDID : ValidDID)
     (claims : Claims) : UnknownVC :=
   -- Claimsをバイト列にシリアライズ（簡略化）
   let claimsBytes := claims.data.toUTF8.data.toList
   -- 秘密鍵で署名
   let signature := amatSignature.sign issuerSecretKey claimsBytes
-  -- W3C基本構造を構築（Stage 2-6を反映）
-  -- Stage 6: W3C.Credentialを直接構築（W3CCredentialCoreは型エイリアス）
+  -- W3C基本構造を構築
   let w3cCore : W3C.Credential := {
-    context := [standardVCContext]  -- Stage 2: Listでラップ
-    type_ := [standardAttributeVCType]  -- Stage 6: W3C.Credentialのtype_フィールド
-    issuer := didToW3CIssuer issuerDID  -- Stage 3: W3C.Issuer型に変換
-    credentialSubject := [didToCredentialSubject subjectDID]  -- Stage 4: W3C.CredentialSubject型に変換
-    -- Stage 5: signatureフィールドを削除（ValidVCに移動）
-    credentialStatus := noRevocationInfo
-  }
-  -- AMATELUS構造を構築（委任者なし = 直接発行）
-  -- Stage 6: コンポジション方式に変更
-  let amatCore : AMATELUSCredential := {
-    w3cCredential := w3cCore
-    delegator := none  -- 委任なし
+    context := [standardVCContext]
+    type_ := [standardAttributeVCType]
+    issuer := didToW3CIssuer (UnknownDID.valid issuerDID)
+    credentialSubject := [didToCredentialSubject (UnknownDID.valid subjectDID)]
+    credentialStatus := none
   }
   -- AttributeVCとして構築
-  -- Stage 6: コンポジション方式に変更
   let attributeVC : AttributeVC := {
-    amatelus := amatCore
+    w3cCredential := w3cCore
     claims := claims
   }
   -- VCTypeとして構築
   let vcType : VCTypeCore := VCTypeCore.attributeVC attributeVC
-  -- ValidVCとして構築（amatSignature.completenessにより署名は有効）
-  -- Stage 3: issuerDIDを型レベルで保証
-  -- Stage 4: subjectDIDを型レベルで保証
-  -- Stage 5: signatureを型レベルで保証
+  -- ValidVCとして構築（委任者なし = 直接発行）
+  -- issuerDIDとsubjectDIDは既にValidDIDなので、そのまま使用
   let validVC : ValidVC := {
     vcType := vcType
     issuerDID := issuerDID
     subjectDID := subjectDID
-    signature := signature  -- Stage 5: ValidVCに署名を含める
+    signature := signature
+    delegator := none  -- 委任なし（トラストアンカー直接発行）
   }
-  -- UnknownVCとして返す
   UnknownVC.valid validVC
 
-/-- 定理: 発行されたVCは暗号学的に有効である
+/-- 定理: ValidDIDで発行されたVCは暗号学的に有効である
 
     **証明の構造:**
-    1. issueCredentialはamatSignature.signを使って署名を生成
-    2. amatSignature.completenessにより、署名は検証に成功
-    3. ValidVCとして構築されるため、UnknownVC.isValidが成立
+    1. issueCredentialはValidDIDを受け取る
+    2. amatSignature.signを使って署名を生成
+    3. amatSignature.completenessにより、署名は検証に成功
+    4. ValidVCとして構築されるため、UnknownVC.isValidが成立
+
+    **AMATELUSの設計:**
+    - IssuerはDIDConn（またはZKP）でValidDIDを取得済み
+    - 発行されるVCは常に暗号学的に有効
 
     **重要な注意:**
-    この定理は「暗号学的に有効」であることのみを保証します。
-    「信頼できる」かどうかはVerifierの信頼ポリシーによって決まります。
+    - この定理は「暗号学的に有効」であることのみを保証します
+    - 「信頼できる」かどうかはVerifierの信頼ポリシーによって決まります
 -/
 theorem issued_credential_is_cryptographically_valid :
-  ∀ (issuerDID subjectDID : UnknownDID) (issuerSecretKey : SecretKey) (claims : Claims),
+  ∀ (issuerDID subjectDID : ValidDID) (issuerSecretKey : SecretKey) (claims : Claims),
     let vc := issueCredential issuerDID issuerSecretKey subjectDID claims
     UnknownVC.isValid vc := by
   intro issuerDID subjectDID issuerSecretKey claims
@@ -319,9 +307,14 @@ theorem issued_credential_is_cryptographically_valid :
 
 namespace Verifier
 
-/-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す -/
+/-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す
+
+    **戻り値:**
+    - `Option ValidDID`: トラストアンカーは型レベルで検証済みのValidDIDとして管理されるため、
+      ValidDIDを直接返すことで型安全性が向上する
+-/
 def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : UnknownDID) :
-    Option UnknownDID :=
+    Option ValidDID :=
   dict.find? (fun (_anchorDID, info) => info.trustees.contains trusteeDID)
     |>.map (fun (anchorDID, _) => anchorDID)
 
@@ -350,14 +343,12 @@ def checkTrustChainRecursive
       -- または、このDIDを受託者として持つトラストアンカーを探す
       match findTrustAnchorForTrustee dict issuerDID with
       | none => False  -- 受託者として認証されていない
-      | some anchorDID =>
+      | some anchorValidDID =>
           -- そのトラストアンカーが信頼できるか再帰的にチェック
-          checkTrustChainRecursive dict trustedRoots anchorDID depth'
+          -- ValidDIDをUnknownDIDに変換して再帰
+          checkTrustChainRecursive dict trustedRoots (UnknownDID.valid anchorValidDID) depth'
 
-/-- 信頼チェーンの検証
-
-    **Stage 3対応:** getIssuerは常にDIDを返す（ValidVCは型レベルで保証）
--/
+/-- 信頼チェーンの検証 -/
 def verifyTrustChain
     (dict : TrustAnchorDict)
     (policy : TrustPolicy)
@@ -403,16 +394,15 @@ end Verifier
     - Basic.lean:1457 `verifier_cryptographic_soundness`で形式化済み
 -/
 theorem wallet_store_preserves_validity :
-  ∀ (wallet : Wallet) (vc : UnknownVC) (holderDID : UnknownDID)
-    (h_valid : UnknownVC.isValid vc)
-    (h_subject : UnknownVC.getSubject vc = holderDID)
+  ∀ (wallet : Wallet) (vc : ValidVC) (holderDID : ValidDID)
+    (h_subject : vc.subjectDID = holderDID)
     (h_has_did : Wallet.hasDID wallet holderDID),
     -- 前提: walletが正規
     Wallet.isValid wallet →
-    let wallet' := Holder.storeCredential wallet vc holderDID h_valid h_subject h_has_did;
+    let wallet' := Holder.storeCredential wallet vc holderDID h_subject h_has_did;
     -- 結論: VC保存後もWalletは正規
     Wallet.isValid wallet' := by
-  intro wallet vc holderDID h_valid h_subject h_has_did h_wallet_valid wallet'
+  intro wallet vc holderDID h_subject h_has_did h_wallet_valid wallet'
   -- Wallet.isValidの定義を展開
   unfold Wallet.isValid
   -- identitiesは変更されていない
@@ -426,8 +416,6 @@ theorem wallet_store_preserves_validity :
     1. UnknownVC.isValid vc が成立（暗号学的に有効）
     2. getIssuer vcがtrustedRootsに含まれる（Verifierが信頼）
     3. Verifier.verifyCredentialの定義により、両方の条件を満たせば検証成功
-
-    **Stage 3設計:** getIssuerは直接DIDを返す（ValidVCは型レベルで保証）
 -/
 theorem verifier_accepts_valid_credential :
   ∀ (verifier : Verifier) (vc : UnknownVC),

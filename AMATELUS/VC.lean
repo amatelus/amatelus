@@ -9,12 +9,6 @@ import W3C.VC
 
 -- ## Definition 2.2: Verifiable Credential
 
--- AMATELUS型エイリアス（W3C標準型へのマッピング）
---
---     **Stage 6設計:**
---     AMATELUSの独自型をW3C標準型にマッピングします。
---     これにより、W3C.Credentialを直接使用しつつ、AMATELUS固有の型名を維持できます。
-
 /-- VCのコンテキストを表す型（W3C標準と同一） -/
 abbrev Context := W3C.Context
 
@@ -100,24 +94,68 @@ end AnonymousHashIdentifier
 
 /-- W3C.IssuerからDIDを取得する関数
 
-    W3C.IssuerのID文字列がDID形式（"did:..."）の場合、DIDとして解釈します。
+    W3C.IssuerのID文字列がDID形式（"did:amt:..."）の場合、DIDとして解釈します。
 
     **戻り値:**
-    - `Some (DID.valid w3cDID)`: ID文字列がDID形式で有効
-    - `None`: ID文字列がDID形式でない
+    - `None`: DID形式でない、またはハッシュ情報が不明で検証できない
+
+    **設計思想:**
+    W3C VCから抽出したDIDは、DIDDocumentのハッシュ情報が不明なため、
+    ValidDIDに変換できません。検証関数を使用する`getIssuerDIDWithValidation`を
+    使用してください。
 
     **使用例:**
-    - issuer: W3C.Issuer.uri "did:amt:123..." → Some (DID.valid ...)
+    - issuer: W3C.Issuer.uri "did:amt:123..." → None（ハッシュ不明）
     - issuer: W3C.Issuer.uri "https://example.com" → None（URLはDIDではない）
 -/
-def getIssuerDID (issuer : W3C.Issuer) : Option UnknownDID :=
+def getIssuerDID (issuer : W3C.Issuer) : Option ValidDID :=
   let idString := issuer.getId
-  -- DID形式かチェック（"did:"で始まる）
-  if idString.startsWith "did:" then
+  -- DID形式かチェック（"did:amt:"で始まる）
+  if idString.startsWith "did:amt:" then
     -- W3C.DIDとして構築
     let w3cDID : W3C.DID := { value := idString }
-    -- AMATELUS DIDとして返す
-    some (UnknownDID.valid w3cDID)
+    -- ハッシュ情報が不明なため、InvalidDIDとして構築
+    let invalidDID : InvalidDID := {
+      w3cDID := w3cDID,
+      reason := "Hash unknown - DID extracted from W3C VC without DIDDocument"
+    }
+    let unknownDID := UnknownDID.invalid invalidDID
+    -- toValidDIDを通して検証（常にnoneが返る）
+    UnknownDID.toValidDID unknownDID
+  else
+    none
+
+/-- W3C.IssuerからDIDを取得する関数（検証付き）
+
+    W3C.IssuerのID文字列をDIDとして解釈し、検証関数で検証します。
+
+    **パラメータ:**
+    - `issuer`: W3C.Issuer
+    - `validateDID`: DID文字列を検証し、ValidDIDを返す関数（例：Wallet内のDIDリストを参照）
+
+    **戻り値:**
+    - `Some ValidDID`: 検証に成功した場合
+    - `None`: DID形式でない、または検証に失敗した場合
+
+    **使用例:**
+    ```lean
+    -- WalletからDIDを検証する関数
+    def validateWithWallet (wallet : Wallet) (didStr : W3C.DID) : Option ValidDID :=
+      wallet.identities.find? (fun id => id.did.w3cDID == didStr)
+        |>.map (fun id => id.did)
+
+    -- Issuerからvalidated DIDを取得
+    let issuerDID := getIssuerDIDWithValidation issuer (validateWithWallet myWallet)
+    ```
+-/
+def getIssuerDIDWithValidation
+    (issuer : W3C.Issuer)
+    (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
+  let idString := issuer.getId
+  if idString.startsWith "did:amt:" then
+    let w3cDID : W3C.DID := { value := idString }
+    -- 検証関数を適用
+    validateDID w3cDID
   else
     none
 
@@ -134,37 +172,75 @@ def getIssuerDID (issuer : W3C.Issuer) : Option UnknownDID :=
 -/
 def didToW3CIssuer (did : UnknownDID) : W3C.Issuer :=
   match did with
-  | UnknownDID.valid w3cDID => W3C.Issuer.uri w3cDID.value
-  | UnknownDID.invalid w3cDID _ => W3C.Issuer.uri w3cDID.value
+  | UnknownDID.valid v => W3C.Issuer.uri v.w3cDID.value
+  | UnknownDID.invalid i => W3C.Issuer.uri i.w3cDID.value
 
 -- ## Helper Functions for W3C CredentialSubject
 
 /-- W3C.CredentialSubjectからDIDを取得する関数
 
-    W3C.CredentialSubjectのid文字列がDID形式（"did:..."）の場合、DIDとして解釈します。
+    W3C.CredentialSubjectのid文字列がDID形式（"did:amt:..."）の場合、DIDとして解釈します。
 
     **戻り値:**
-    - `Some (DID.valid w3cDID)`: ID文字列がDID形式で有効
-    - `None`: ID文字列がDID形式でない、またはidが存在しない
+    - `None`: DID形式でない、idが存在しない、またはハッシュ情報が不明で検証できない
+
+    **設計思想:**
+    W3C VCから抽出したDIDは、DIDDocumentのハッシュ情報が不明なため、
+    ValidDIDに変換できません。検証関数を使用する`getSubjectDIDWithValidation`を
+    使用してください。
 
     **使用例:**
-    - credentialSubject.id = Some "did:amt:123..." → Some (DID.valid ...)
+    - credentialSubject.id = Some "did:amt:123..." → None（ハッシュ不明）
     - credentialSubject.id = Some "https://example.com" → None（URLはDIDではない）
     - credentialSubject.id = None → None
 -/
-def getSubjectDID (subjects : List W3C.CredentialSubject) : Option UnknownDID :=
+def getSubjectDID (subjects : List W3C.CredentialSubject) : Option ValidDID :=
   match subjects.head? with
   | none => none
   | some subject =>
       match subject.id with
       | none => none
       | some idString =>
-          -- DID形式かチェック（"did:"で始まる）
-          if idString.startsWith "did:" then
+          -- DID形式かチェック（"did:amt:"で始まる）
+          if idString.startsWith "did:amt:" then
             -- W3C.DIDとして構築
             let w3cDID : W3C.DID := { value := idString }
-            -- AMATELUS DIDとして返す
-            some (UnknownDID.valid w3cDID)
+            -- ハッシュ情報が不明なため、InvalidDIDとして構築
+            let invalidDID : InvalidDID := {
+              w3cDID := w3cDID,
+              reason := "Hash unknown - DID extracted from W3C VC without DIDDocument"
+            }
+            let unknownDID := UnknownDID.invalid invalidDID
+            -- toValidDIDを通して検証（常にnoneが返る）
+            UnknownDID.toValidDID unknownDID
+          else
+            none
+
+/-- W3C.CredentialSubjectからDIDを取得する関数（検証付き）
+
+    W3C.CredentialSubjectのid文字列をDIDとして解釈し、検証関数で検証します。
+
+    **パラメータ:**
+    - `subjects`: W3C.CredentialSubjectのリスト
+    - `validateDID`: DID文字列を検証し、ValidDIDを返す関数
+
+    **戻り値:**
+    - `Some ValidDID`: 検証に成功した場合
+    - `None`: DID形式でない、idが存在しない、または検証に失敗した場合
+-/
+def getSubjectDIDWithValidation
+    (subjects : List W3C.CredentialSubject)
+    (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
+  match subjects.head? with
+  | none => none
+  | some subject =>
+      match subject.id with
+      | none => none
+      | some idString =>
+          if idString.startsWith "did:amt:" then
+            let w3cDID : W3C.DID := { value := idString }
+            -- 検証関数を適用
+            validateDID w3cDID
           else
             none
 
@@ -185,76 +261,10 @@ def getSubjectDID (subjects : List W3C.CredentialSubject) : Option UnknownDID :=
 -/
 def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
   match did with
-  | UnknownDID.valid w3cDID => { id := some w3cDID.value, claims := [] }
-  | UnknownDID.invalid w3cDID _ => { id := some w3cDID.value, claims := [] }
+  | UnknownDID.valid v => { id := some v.w3cDID.value, claims := [] }
+  | UnknownDID.invalid i => { id := some i.w3cDID.value, claims := [] }
 
 -- ## Helper Functions for Context and VCType conversion
-
-/-- AMATELUS ContextからW3C Contextへの変換（型エイリアスなので実質的に同一） -/
-def contextToW3C (ctx : Context) : W3C.Context := ctx
-
-/-- AMATELUS VCTypeからW3C CredentialTypeへの変換（型エイリアスなので実質的に同一） -/
-def vcTypeToW3C (vct : VCType) : W3C.CredentialType := vct
-
-/-- AMATELUS RevocationInfoからW3C CredentialStatusへの変換
-
-    AMATELUSの簡略化されたRevocationInfoをW3C標準のCredentialStatusに変換します。
-    RevocationInfoはすでにOption W3C.CredentialStatusとして定義されているため、
-    この関数は実質的にidentity関数です。
--/
-def revocationInfoToW3C (rev : RevocationInfo) : Option W3C.CredentialStatus := rev
-
-/-- W3C Verifiable Credential完全準拠型エイリアス
-
-    **Stage 6: W3C.Credential完全移行 ✓**
-
-    AMATELUSはW3C/VC.leanで定義されたW3C.Credential構造体を直接使用します。
-    これにより、W3C VC Data Model 2.0への完全な準拠を実現します。
-
-    **段階的なW3C標準への準拠:**
-    - Stage 1: オプショナルフィールドの追加（id, name, description, validFrom, validUntil） ✓
-    - Stage 2: List型への変更（context, type） ✓
-    - Stage 3: W3C.Issuer型への移行（issuer） ✓
-    - Stage 4: W3C.CredentialSubject型への移行（credentialSubject） ✓
-    - Stage 5: Signature分離（ValidVCへの移動） ✓
-    - Stage 6: W3C.Credential完全移行 ✓
-
-    **設計思想:**
-    W3C標準では、Credential（proof前）とVerifiableCredential（proof後）を明確に分離します。
-    AMATELUSはW3C.Credentialを直接使用し、ValidVCが署名を持ちます。
-
-    参考: https://www.w3.org/TR/vc-data-model/
--/
-abbrev W3CCredentialCore := W3C.Credential
-
-/-- AMATELUS固有のVerifiable Credential構造
-
-    W3C.Credentialを含み、AMATELUS固有の1階層制限を型レベルで保証する。
-
-    **Stage 6設計変更:**
-    - 以前: `extends W3CCredentialCore` で継承
-    - 現在: `w3cCredential : W3C.Credential` でコンポジション
-    - 理由: W3CCredentialCoreが型エイリアスになったため、extendsが使えない
-
-    **1階層制限の型システム保証:**
-    - `delegator: Option DID`により、階層は0または1のみに限定される
-    - `None`: トラストアンカーが直接発行（0階層）
-    - `Some anchorDID`: トラストアンカーが委任者経由で発行（1階層）
-    - 受託者には委任者フィールドがないため、再委任は型システムで不可能
-
-    **設計の利点:**
-    - 型システムで1階層制限が自動的に保証される（数学的証明不要）
-    - 2階層以上のVCは構造的に構築不可能
-    - 委任チェーンの検証が単純化（Option型をチェックするだけ）
-
-    参考: W3C VC Data Model 1.1に準拠しつつ、AMATELUS固有の制約を追加
--/
-structure AMATELUSCredential where
-  -- W3C標準Credentialのコア構造
-  w3cCredential : W3C.Credential
-  -- AMATELUS固有フィールド
-  delegator : Option UnknownDID  -- None = トラストアンカー直接発行、Some did = 委任者経由発行
-  deriving Repr
 
 /-- 受託者認証VC
 
@@ -273,8 +283,8 @@ structure AMATELUSCredential where
     - 受託者が発行するVCは`delegator: Some anchorDID`を持つ必要があり、再委任は不可能
 -/
 structure TrusteeVC where
-  -- AMATELUS構造
-  amatelus : AMATELUSCredential
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- 受託者固有のクレーム
   authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
   trustLevel : Nat                    -- 信頼レベル (1-5)
@@ -290,8 +300,8 @@ structure TrusteeVC where
     - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
 structure NationalIDVC where
-  -- AMATELUS構造
-  amatelus : AMATELUSCredential
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- 国民ID固有のクレーム
   anonymousHashId : AnonymousHashIdentifier   -- 匿名ハッシュ識別子
   auditSection : AuditSectionID                -- 監査区分識別子
@@ -307,8 +317,8 @@ structure NationalIDVC where
     - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
 -/
 structure AttributeVC where
-  -- AMATELUS構造
-  amatelus : AMATELUSCredential
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- 属性固有のクレーム
   claims : Claims                             -- 任意の構造化クレーム
   deriving Repr
@@ -325,8 +335,8 @@ structure AttributeVC where
     - 通常、トラストアンカーが直接発行: `delegator: None`（0階層）
 -/
 structure VerifierVC where
-  -- AMATELUS構造
-  amatelus : AMATELUSCredential
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- 検証者固有のクレーム
   authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
   verificationScope : String                          -- 検証の範囲（地域、組織など）
@@ -349,8 +359,8 @@ structure VerifierVC where
     - トラストアンカーが自己署名で発行: `delegator: None`（0階層）
 -/
 structure ClaimDefinitionVC where
-  -- AMATELUS構造
-  amatelus : AMATELUSCredential
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
   -- クレーム定義固有のフィールド
   claimID : ClaimID                     -- クレームの一意な識別子
   claimDescription : String             -- クレームの説明（人間可読）
@@ -376,49 +386,13 @@ inductive VCTypeCore
 
 namespace VCTypeCore
 
-/-- VCTypeからAMATELUS構造を取得
-
-    **Stage 6設計:**
-    各VC型は`amatelus`フィールドを通してAMATELUSCredentialにアクセスします。
--/
-def getAMATELUSCore : VCTypeCore → AMATELUSCredential
-  | trusteeVC vc => vc.amatelus
-  | nationalIDVC vc => vc.amatelus
-  | attributeVC vc => vc.amatelus
-  | verifierVC vc => vc.amatelus
-  | claimDefinitionVC vc => vc.amatelus
-
-/-- VCTypeからW3C基本構造を取得
-
-    **Stage 6設計:**
-    各VC型は`amatelus.w3cCredential`フィールドを通してW3C.Credentialにアクセスします。
--/
-def getCore : VCTypeCore → W3CCredentialCore
-  | trusteeVC vc => vc.amatelus.w3cCredential
-  | nationalIDVC vc => vc.amatelus.w3cCredential
-  | attributeVC vc => vc.amatelus.w3cCredential
-  | verifierVC vc => vc.amatelus.w3cCredential
-  | claimDefinitionVC vc => vc.amatelus.w3cCredential
-
-/-- VCTypeの発行者をDIDとして取得
-
-    **注意:** この関数は内部実装用です。
-    通常はUnknownVC.getIssuerを使用してください（型安全）。
--/
-def getIssuer (vc : VCTypeCore) : Option UnknownDID :=
-  getIssuerDID (getCore vc).issuer
-
-/-- VCTypeの主体をDIDとして取得
-
-    **注意:** この関数は内部実装用です。
-    通常はUnknownVC.getSubjectを使用してください（型安全）。
--/
-def getSubject (vc : VCTypeCore) : Option UnknownDID :=
-  getSubjectDID (getCore vc).credentialSubject
-
-/-- VCTypeの委任者を取得（1階層制限の検証に使用） -/
-def getDelegator (vc : VCTypeCore) : Option UnknownDID :=
-  (getAMATELUSCore vc).delegator
+/-- VCTypeからW3C基本構造を取得 -/
+def getCore : VCTypeCore → W3C.Credential
+  | trusteeVC vc => vc.w3cCredential
+  | nationalIDVC vc => vc.w3cCredential
+  | attributeVC vc => vc.w3cCredential
+  | verifierVC vc => vc.w3cCredential
+  | claimDefinitionVC vc => vc.w3cCredential
 
 end VCTypeCore
 
@@ -436,31 +410,22 @@ end VCTypeCore
     - Ed25519署名検証などの暗号的詳細を隠蔽
     - プロトコルの安全性証明が簡潔になる
     - Issuer実装の違いを抽象化（同じプロトコルで多様なIssuer実装が可能）
-
-    **Stage 3: 型レベルの不変条件（issuer）:**
-    - `issuerDID`: ValidVCは必ずDID形式のissuerを持つことを型で保証
-    - これにより、getIssuerがOption不要でDIDを直接返せる
-
-    **Stage 4: 型レベルの不変条件（subject）:**
-    - `subjectDID`: ValidVCは必ずDID形式のsubjectを持つことを型で保証
-    - これにより、getSubjectがOption不要でDIDを直接返せる
-
-    **Stage 5: 型レベルの不変条件（signature）:**
-    - `signature`: ValidVCは必ず有効な署名を持つことを型で保証
-    - W3C標準の設計：Credential（proof前）とVerifiableCredential（proof後）の分離
-    - これにより「ValidVCは必ず有効な署名を持つ」ことが型レベルで保証される
 -/
 structure ValidVC where
   -- VCの種類
   vcType : VCTypeCore
-  -- 発行者DID（型レベルで保証）
-  issuerDID : UnknownDID
-  -- 主体DID（型レベルで保証）
-  subjectDID : UnknownDID
+  -- 発行者DID（型レベルで正規のDIDを保証）
+  issuerDID : ValidDID
+  -- 主体DID（型レベルで正規のDIDを保証）
+  subjectDID : ValidDID
   -- デジタル署名（型レベルで保証）
   signature : Signature
-  -- 不変条件: getIssuerDID (getCore vcType).issuer = some issuerDID
-  -- 不変条件: getSubjectDID (getCore vcType).credentialSubject = some subjectDID
+  -- 委任者DID（1階層制限の型システム保証）
+  -- None = トラストアンカー直接発行（0階層）
+  -- Some anchorDID = 委任者経由発行（1階層）
+  delegator : Option ValidDID
+  -- 不変条件: getIssuerDID (getCore vcType).issuer = some (UnknownDID.valid issuerDID)
+  -- 不変条件: getSubjectDID (getCore vcType).credentialSubject = some (UnknownDID.valid subjectDID)
   -- 不変条件: amatSignature.verify (getCore vcType) signature = true
   -- 暗号学的に正しく発行されたという不変条件（抽象化）
   -- 実際のEd25519署名検証などの詳細は抽象化される
@@ -512,40 +477,49 @@ inductive UnknownVC
 namespace UnknownVC
 
 /-- VCから基本構造を取得 -/
-def getCore : UnknownVC → W3CCredentialCore :=
+def getCore : UnknownVC → W3C.Credential :=
   fun vc => match vc with
   | valid vvc => VCTypeCore.getCore vvc.vcType
   | invalid ivc => VCTypeCore.getCore ivc.vcType
 
-/-- VCの発行者をDIDとして取得
-
-    **Stage 3設計:**
-    - ValidVC: 型レベルで保証されたDIDを直接返す（Option不要）
-    - InvalidVC: W3C.IssuerからDIDを抽出（DID形式でない場合はNone）
--/
+/-- VCの発行者をDIDとして取得 -/
 def getIssuer (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => vvc.issuerDID  -- ValidVCは型レベルでDIDを保証
+  | valid vvc => UnknownDID.valid vvc.issuerDID  -- ValidDIDをUnknownDIDに変換
   | invalid _ =>
       -- InvalidVCの場合、issuerがDID形式でなければダミーDIDを返す
+      -- getIssuerDIDはOption ValidDIDを返すので、UnknownDID.validに変換
       match getIssuerDID (getCore vc).issuer with
-      | some did => did
-      | none => UnknownDID.invalid { value := "invalid:unknown" } "Non-DID issuer in InvalidVC"
+      | some did => UnknownDID.valid did
+      | none => UnknownDID.invalid {
+          w3cDID := { value := "invalid:unknown" },
+          reason := "Non-DID issuer in InvalidVC"
+        }
 
-/-- VCの主体をDIDとして取得
-
-    **Stage 4設計:**
-    - ValidVC: 型レベルで保証されたDIDを直接返す（Option不要）
-    - InvalidVC: W3C.CredentialSubjectからDIDを抽出（DID形式でない場合はダミーDID）
--/
+/-- VCの主体をDIDとして取得 -/
 def getSubject (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => vvc.subjectDID  -- ValidVCは型レベルでDIDを保証
+  | valid vvc => UnknownDID.valid vvc.subjectDID  -- ValidDIDをUnknownDIDに変換
   | invalid _ =>
       -- InvalidVCの場合、subjectがDID形式でなければダミーDIDを返す
+      -- getSubjectDIDはOption ValidDIDを返すので、UnknownDID.validに変換
       match getSubjectDID (getCore vc).credentialSubject with
-      | some did => did
-      | none => UnknownDID.invalid { value := "invalid:unknown" } "Non-DID subject in InvalidVC"
+      | some did => UnknownDID.valid did
+      | none => UnknownDID.invalid {
+          w3cDID := { value := "invalid:unknown" },
+          reason := "Non-DID subject in InvalidVC"
+        }
+
+/-- VCの委任者を取得（1階層制限の検証に使用）
+
+    **設計:**
+    - ValidVC: delegatorフィールドを直接返す（Option ValidDID）
+    - InvalidVC: 委任者情報がないため、noneを返す
+-/
+def getDelegator (vc : UnknownVC) : Option ValidDID :=
+  match vc with
+  | valid vvc => vvc.delegator  -- Option ValidDIDを直接返す
+  | invalid _ => none  -- InvalidVCは委任者情報を持たない
 
 /-- VC検証関数（定義として実装）
 

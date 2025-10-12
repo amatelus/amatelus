@@ -137,13 +137,7 @@ theorem vc_signature_forgery_quantum_secure :
 
 -- ## Theorem 3.5: Revocation-Independent Protocol Safety
 
-/-- VC検証の暗号学的完全性（失効確認なし）
-
-    **Stage 5設計:**
-    signatureはValidVCのみが持つフィールドです。
-    - ValidVCの場合: 署名を検証
-    - InvalidVCの場合: signatureがないため、検証は失敗（false）
--/
+/-- VC検証の暗号学的完全性（失効確認なし） -/
 noncomputable def cryptographic_verify (vc : UnknownVC) (issuerPK : PublicKey) : Bool :=
   match vc with
   | UnknownVC.valid vvc =>

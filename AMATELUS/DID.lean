@@ -122,18 +122,49 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
   | none => ""
   | some (_, id) => id
 
+/-- 正規のDID（検証済み）
+
+    Wallet内に対応するIdentityがあり、秘密鍵を保持しているDID。
+
+    **フィールド:**
+    - w3cDID: W3C DID仕様に準拠したDID識別子
+    - hash: DIDDocumentから計算されたハッシュ値（did:amt仕様のmethod-specific-id）
+
+    **did:amt仕様:**
+    - did:amt仕様では、method-specific-idがDIDDocumentのハッシュです
+    - hashフィールドはこのハッシュ値を保持します
+    - w3cDIDのmethod-specific-id部分とhashは一致する必要があります
+-/
+structure ValidDID where
+  w3cDID : W3C.DID
+  hash : Hash
+  deriving Repr, DecidableEq
+
+/-- 不正なDID
+
+    Wallet内にIdentityがない、または盗難されたDID。
+
+    **フィールド:**
+    - w3cDID: W3C DID仕様に準拠したDID識別子
+    - reason: 不正と判断された理由
+-/
+structure InvalidDID where
+  w3cDID : W3C.DID
+  reason : String
+  deriving Repr, DecidableEq
+
 /-- UnknownDID (Unknown Decentralized Identifier)
 
     正規のDIDと不正なDIDの和型。
     AMATELUSプロトコルで扱われるDIDは、以下のいずれか：
     - valid: 正規のDID（Wallet内に対応するIdentityがある）
-    - invalid: 不正なDID（Wallet内にIdentityがない、または盗難DID）+ 理由
+    - invalid: 不正なDID（Wallet内にIdentityがない、または盗難DID）
 
     **設計の利点:**
     - DIDの正規性をプロトコルレベルで明確に区別
     - Walletバグや悪意の攻撃を型レベルで表現
     - ZKP/VC/DIDPairと完全に統一された設計
-    - W3C.DIDを直接使用（did:amt仕様ではmethod-specific-idがハッシュ）
+    - ValidDIDにはハッシュ値を保持（did:amt仕様に準拠）
 
     **AMATELUSのDIDConn（VC発行フロー）:**
     - HolderがIssuerにDIDを送信してVC発行を依頼
@@ -148,39 +179,36 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
     - 統一された形式検証アプローチ
 -/
 inductive UnknownDID
-  | valid : W3C.DID → UnknownDID
-  | invalid : W3C.DID → String → UnknownDID
+  | valid : ValidDID → UnknownDID
+  | invalid : InvalidDID → UnknownDID
 
 /-- DIDのBeqインスタンス -/
 instance : BEq UnknownDID where
   beq
-    | UnknownDID.valid did1, UnknownDID.valid did2 => did1 == did2
-    | UnknownDID.invalid did1 _, UnknownDID.invalid did2 _ => did1 == did2
+    | UnknownDID.valid v1, UnknownDID.valid v2 => v1.w3cDID == v2.w3cDID
+    | UnknownDID.invalid i1, UnknownDID.invalid i2 => i1.w3cDID == i2.w3cDID
     | _, _ => false
 
 /-- DIDのReprインスタンス -/
 instance : Repr UnknownDID where
   reprPrec
-    | UnknownDID.valid w3cDID, _ =>
-        "DID.valid " ++ repr w3cDID
-    | UnknownDID.invalid w3cDID reason, _ =>
-        "DID.invalid { w3cDID := " ++ repr w3cDID ++
-        ", reason := \"" ++ reason ++ "\" }"
+    | UnknownDID.valid v, _ =>
+        "DID.valid " ++ repr v
+    | UnknownDID.invalid i, _ =>
+        "DID.invalid " ++ repr i
 
 /-- DIDのDecidableEqインスタンス -/
 instance : DecidableEq UnknownDID := fun a b =>
   match a, b with
-  | UnknownDID.valid did1, UnknownDID.valid did2 =>
-      if h : did1 = did2 then isTrue (congrArg UnknownDID.valid h)
+  | UnknownDID.valid v1, UnknownDID.valid v2 =>
+      if h : v1 = v2 then isTrue (congrArg UnknownDID.valid h)
       else isFalse (fun h_eq => h (UnknownDID.valid.inj h_eq))
-  | UnknownDID.invalid did1 reason1, UnknownDID.invalid did2 reason2 =>
-      if h : did1 = did2 ∧ reason1 = reason2 then
-        isTrue (by cases h.1; cases h.2; rfl)
-      else isFalse (fun h_eq => by
-        cases h_eq
-        exact h ⟨rfl, rfl⟩)
-  | UnknownDID.valid _, UnknownDID.invalid _ _ => isFalse (fun h => nomatch h)
-  | UnknownDID.invalid _ _, UnknownDID.valid _ => isFalse (fun h => nomatch h)
+  | UnknownDID.invalid i1, UnknownDID.invalid i2 =>
+      if h : i1 = i2 then
+        isTrue (congrArg UnknownDID.invalid h)
+      else isFalse (fun h_eq => h (UnknownDID.invalid.inj h_eq))
+  | UnknownDID.valid _, UnknownDID.invalid _ => isFalse (fun h => nomatch h)
+  | UnknownDID.invalid _, UnknownDID.valid _ => isFalse (fun h => nomatch h)
 
 /-- W3C ServiceEndpointをバイト列にシリアライズするヘルパー関数 -/
 def serializeW3CServiceEndpoint (se : W3C.ServiceEndpoint) : List UInt8 :=
@@ -239,48 +267,68 @@ noncomputable def ValidDIDDocumentToDID (doc : ValidDIDDocument) : W3C.DID :=
 
 namespace UnknownDID
 
-/-- ValidDIDDocumentからW3C.DIDを取得
+/-- ValidDIDDocumentからValidDIDを生成
 
-    ValidDIDDocumentToDIDを使用して、所有権検証済みのUnknownDIDDocumentから
-    W3C.DIDを取得します。
+    ValidDIDDocumentをシリアライズしてハッシュを計算し、ValidDIDを構築します。
 
     **AMATELUSでの使用:**
-    - Issuer: チャレンジ検証後にW3C.DIDを取得
-    - Verifier: トラストアンカーの公開UnknownDIDDocumentからW3C.DIDを取得
+    - Issuer: チャレンジ検証後にValidDIDを取得
+    - Verifier: トラストアンカーの公開UnknownDIDDocumentからValidDIDを取得
 
     この定義により、以下が保証される：
-    - **決定性**: 同じValidDIDDocumentからは常に同じW3C.DIDが取得される
+    - **決定性**: 同じValidDIDDocumentからは常に同じValidDIDが取得される
     - **一意性**: did:amt仕様により、method-specific-idがハッシュなので一意性が保証される
 -/
-noncomputable def fromValidDocument (doc : ValidDIDDocument) : W3C.DID :=
-  ValidDIDDocumentToDID doc
+noncomputable def fromValidDocument (doc : ValidDIDDocument) : ValidDID :=
+  let w3cDID := ValidDIDDocumentToDID doc
+  let serialized := serializeUnknownDIDDocument doc
+  let hash := hashForDID serialized
+  { w3cDID := w3cDID, hash := hash }
 
 /-- UnknownDIDDocumentからDID（和型）を生成する
 
-    - ValidDIDDocument → valid DID（W3C DIDを含む）
-    - InValidDIDDocument → invalid DID（W3C DIDを含む）
+    - ValidDIDDocument → ValidDID（w3cDIDとhashを含む）
+    - InValidDIDDocument → InvalidDID（w3cDIDとreasonを含む）
 
     この関数により、UnknownDIDDocumentの正規性がDIDの正規性に反映されます。
 -/
 noncomputable def fromDocument (doc : UnknownDIDDocument) : UnknownDID :=
   match doc with
-  | UnknownDIDDocument.valid vdoc => UnknownDID.valid (fromValidDocument vdoc)
+  | UnknownDIDDocument.valid vdoc =>
+      UnknownDID.valid (fromValidDocument vdoc)
   | UnknownDIDDocument.invalid idoc =>
-      UnknownDID.invalid idoc.w3cDoc.id ("Invalid UnknownDIDDocument: " ++ idoc.reason)
+      UnknownDID.invalid {
+        w3cDID := idoc.w3cDoc.id,
+        reason := "Invalid UnknownDIDDocument: " ++ idoc.reason
+      }
 
 /-- DIDからmethod-specific-id（ハッシュ）を取得
 
     did:amt仕様では、method-specific-idがハッシュそのものです。
 -/
 def getMethodSpecificId : UnknownDID → String
-  | valid w3cDID => extractMethodSpecificId w3cDID
-  | invalid w3cDID _ => extractMethodSpecificId w3cDID
+  | valid v => extractMethodSpecificId v.w3cDID
+  | invalid i => extractMethodSpecificId i.w3cDID
+
+/-- UnknownDIDからValidDIDへの変換
+
+    valid: Some ValidDIDを返す
+    invalid: noneを返す
+
+    **設計思想:**
+    invalidなDIDで発行されたVCは、InvalidVCとして扱われるべきです。
+    この関数により、DIDの正規性がVCの正規性に正しく反映されます。
+-/
+def toValidDID (did : UnknownDID) : Option ValidDID :=
+  match did with
+  | valid v => some v
+  | invalid _ => none
 
 /-- DIDがValidDIDDocumentから正しく生成されたかを検証 -/
 def isValid (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   match did with
-  | valid w3cDID => w3cDID = fromValidDocument doc
-  | invalid _ _ => False  -- 不正なDIDは常に無効
+  | valid v => v = fromValidDocument doc
+  | invalid _ => False  -- 不正なDIDは常に無効
 
 -- ## DIDとDIDドキュメントの正規性
 

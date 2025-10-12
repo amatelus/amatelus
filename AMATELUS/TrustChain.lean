@@ -55,12 +55,9 @@ theorem one_level_trust_chain_security :
     - O(1)の検証複雑度
 -/
 def getVCDepth (vc : UnknownVC) : Nat :=
-  match vc with
-  | UnknownVC.valid vvc =>
-      match VCTypeCore.getDelegator vvc.vcType with
-      | none => 0  -- トラストアンカー直接発行
-      | some _ => 1  -- 委任者経由発行
-  | UnknownVC.invalid _ => 0  -- 不正なVCは階層0とみなす
+  match UnknownVC.getDelegator vc with
+  | none => 0  -- トラストアンカー直接発行
+  | some _ => 1  -- 委任者経由発行
 
 /-- Theorem: すべてのVCの階層深度は1以下（型システムで保証）
 
@@ -72,9 +69,7 @@ theorem vc_depth_at_most_one :
     getVCDepth vc ≤ 1 := by
   intro vc
   unfold getVCDepth
-  split
-  · split <;> omega
-  · omega
+  split <;> omega
 
 /-- VCが直接信頼関係（0階層または1階層）を持つかを判定
 
@@ -92,17 +87,14 @@ theorem vc_depth_at_most_one :
 def isDirectTrustVC (vc : UnknownVC) (wallet : Wallet) : Prop :=
   match vc with
   | UnknownVC.valid vvc =>
-      match VCTypeCore.getDelegator vvc.vcType with
+      match vvc.delegator with
       | none =>
           -- 0階層: トラストアンカー直接発行
-          -- Stage 3: ValidVCは型レベルでissuerDIDを保証
-          let issuerDID := vvc.issuerDID
-          (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome
-      | some anchorDID =>
+          (TrustAnchorDict.lookup wallet.trustedAnchors vvc.issuerDID).isSome
+      | some anchorValidDID =>
           -- 1階層: 委任者経由発行
-          -- Stage 3: ValidVCは型レベルでissuerDIDを保証
-          let issuerDID := vvc.issuerDID
-          match TrustAnchorDict.lookup wallet.trustedAnchors anchorDID with
+          let issuerDID := UnknownDID.valid vvc.issuerDID
+          match TrustAnchorDict.lookup wallet.trustedAnchors anchorValidDID with
           | none => False  -- トラストアンカーが信頼されていない
           | some info => issuerDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
   | UnknownVC.invalid _ => False  -- 不正なVCは信頼されない
@@ -156,9 +148,7 @@ theorem type_system_guarantees_one_level :
     getVCDepth vc = 0 ∨ getVCDepth vc = 1 := by
   intro vc
   unfold getVCDepth
-  split
-  · split <;> simp
-  · simp
+  split <;> simp
 
 -- ## Theorem 4.3: AMATELUSプロトコルの検証制限
 
@@ -258,7 +248,10 @@ def RootAuthorityCertificate.isValidCert
   -- 有効期限のチェック（検証者のローカル時刻で判定）
   verifierWallet.localTime.unixTime ≤ cert.validUntil.unixTime ∧
   -- 証明書がWalletの信頼するトラストアンカーリストに含まれる
-  (TrustAnchorDict.lookup verifierWallet.trustedAnchors cert.subject).isSome
+  -- cert.subjectがValidDIDである場合のみ
+  (∃ (validDID : ValidDID),
+    cert.subject = UnknownDID.valid validDID ∧
+    (TrustAnchorDict.lookup verifierWallet.trustedAnchors validDID).isSome)
   -- 注: 自己署名の検証はW3C VC標準の署名検証プロセスに含まれる
 
 /-- トラストアンカーの判定（1階層版）
@@ -272,16 +265,19 @@ def RootAuthorityCertificate.isValidCert
 def isTrustAnchor (issuer : Issuer) (did : UnknownDID) (verifierWallet : Wallet) : Prop :=
   match issuer with
   | Issuer.trustAnchor ta =>
-      -- WalletにDIDが含まれていることを確認
-      Wallet.hasDID ta.wallet did ∧
-      -- トラストアンカーはルート証明書を持つ
-      match ta.wallet.rootAuthorityCertificate with
-      | none => False
-      | some cert =>
-          -- ルート証明書が有効である（検証者のウォレット時刻で判定）
-          cert.isValidCert verifierWallet ∧
-          -- 証明書の主体が発行者のDIDと一致
-          cert.subject = did
+      -- didがValidDIDである場合のみ、WalletにDIDが含まれていることを確認
+      match did with
+      | UnknownDID.valid validDID =>
+          Wallet.hasDID ta.wallet validDID ∧
+          -- トラストアンカーはルート証明書を持つ
+          match ta.wallet.rootAuthorityCertificate with
+          | none => False
+          | some cert =>
+              -- ルート証明書が有効である（検証者のウォレット時刻で判定）
+              cert.isValidCert verifierWallet ∧
+              -- 証明書の主体が発行者のDIDと一致
+              cert.subject = did
+      | UnknownDID.invalid _ => False  -- 不正なDIDはトラストアンカーではない
   | Issuer.trustee _ =>
       -- 受託者はトラストアンカーではない
       False
@@ -308,17 +304,19 @@ def isAuthorizedForClaim (issuer : Issuer) (claimID : ClaimID) (verifierWallet :
       -- トラストアンカーの場合: claimIDが自身のauthorizedClaimIDsに含まれる
       claimID ∈ ta.authorizedClaimIDs ∧
       -- かつ、検証者がこのトラストアンカーを信頼している
-      (∃ anchorDID ∈ ta.wallet.identities.map (·.did),
-        (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
+      (∃ (anchorValidDID : ValidDID),
+        anchorValidDID ∈ ta.wallet.identities.map (·.did) ∧
+        (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
   | Issuer.trustee t =>
       -- 受託者の場合: claimIDがauthorizedClaimIDsに含まれる
       claimID ∈ t.authorizedClaimIDs ∧
       -- かつ、TrusteeVCが有効である
       UnknownVC.isValid t.issuerCredential ∧
       -- かつ、TrusteeVCのissuerがトラストアンカーである
-      (∃ anchorDID,
-        UnknownVC.getIssuer t.issuerCredential = anchorDID ∧
-        (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
+      (∃ (anchorUnknownDID : UnknownDID) (anchorValidDID : ValidDID),
+        UnknownVC.getIssuer t.issuerCredential = anchorUnknownDID ∧
+        anchorUnknownDID = UnknownDID.valid anchorValidDID ∧
+        (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
 
 /-- 発行者がクレームを発行する権限を持つかを判定（Claims引数版）
 
@@ -346,8 +344,9 @@ theorem trust_anchor_authorized :
     (match issuer with
      | Issuer.trustAnchor ta =>
          claimID ∈ ta.authorizedClaimIDs ∧
-         (∃ anchorDID ∈ ta.wallet.identities.map (·.did),
-           (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
+         (∃ (anchorValidDID : ValidDID),
+           anchorValidDID ∈ ta.wallet.identities.map (·.did) ∧
+           (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
      | Issuer.trustee _ => False) →
     isAuthorizedForClaim issuer claimID verifierWallet := by
   intro issuer claimID verifierWallet h
@@ -355,7 +354,8 @@ theorem trust_anchor_authorized :
   cases issuer with
   | trustAnchor ta =>
       -- h から認可の条件を取得
-      exact h
+      obtain ⟨h_claim, anchorValidDID, h_mem, h_lookup⟩ := h
+      exact ⟨h_claim, anchorValidDID, h_mem, h_lookup⟩
   | trustee _ =>
       -- Trustee の場合、前提が False なので矛盾
       cases h
@@ -383,9 +383,10 @@ theorem trustee_direct_authorized :
      | Issuer.trustee t =>
          claimID ∈ t.authorizedClaimIDs ∧
          UnknownVC.isValid t.issuerCredential ∧
-         (∃ anchorDID,
-           UnknownVC.getIssuer t.issuerCredential = anchorDID ∧
-           (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
+         (∃ (anchorUnknownDID : UnknownDID) (anchorValidDID : ValidDID),
+           UnknownVC.getIssuer t.issuerCredential = anchorUnknownDID ∧
+           anchorUnknownDID = UnknownDID.valid anchorValidDID ∧
+           (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
      | Issuer.trustAnchor _ => False) →
     isAuthorizedForClaim issuer claimID verifierWallet := by
   intro issuer claimID verifierWallet h
@@ -393,7 +394,8 @@ theorem trustee_direct_authorized :
   cases issuer with
   | trustee t =>
       -- h から認可の条件を取得
-      exact h
+      obtain ⟨h_claim, h_valid, anchorUnknownDID, anchorValidDID, h_issuer, h_eq, h_lookup⟩ := h
+      exact ⟨h_claim, h_valid, anchorUnknownDID, anchorValidDID, h_issuer, h_eq, h_lookup⟩
   | trustAnchor _ =>
       -- TrustAnchor の場合、前提が False なので矛盾
       cases h

@@ -68,7 +68,11 @@ structure HolderResponse where
 -/
 def isClaimIssuerTrusted (claim : VerifierClaim) (holderWallet : Wallet) : Bool :=
   -- 署名者DIDがトラストアンカー辞書に存在するか確認
-  (TrustAnchorDict.lookup holderWallet.trustedAnchors claim.issuerDID).isSome
+  -- claim.issuerDIDがValidDIDである場合のみ信頼される
+  match claim.issuerDID with
+  | UnknownDID.valid validDID =>
+      (TrustAnchorDict.lookup holderWallet.trustedAnchors validDID).isSome
+  | UnknownDID.invalid _ => false  -- 不正なDIDは信頼されない
 
 /-- 全てのクレームが信頼できる発行者によるものか検証
 
@@ -164,7 +168,10 @@ theorem untrusted_issuer_rejected :
   ∀ (msg : VerifierInitialMessage) (holderWallet : Wallet),
     -- 信頼できない発行者が存在する場合
     (∃ claim ∈ msg.presentedClaims,
-      (TrustAnchorDict.lookup holderWallet.trustedAnchors claim.issuerDID).isNone) →
+      match claim.issuerDID with
+      | UnknownDID.valid validDID =>
+          (TrustAnchorDict.lookup holderWallet.trustedAnchors validDID).isNone
+      | UnknownDID.invalid _ => True) →
     -- 検証失敗
     validateVerifierMessage msg holderWallet = false := by
   intro msg holderWallet ⟨claim, h_mem, h_untrusted⟩
@@ -176,8 +183,13 @@ theorem untrusted_issuer_rejected :
   -- 信頼できないクレームが存在することを示す
   refine ⟨claim, h_mem, ?_⟩
   unfold isClaimIssuerTrusted
-  simp at h_untrusted ⊢
-  rw [h_untrusted]
+  cases h : claim.issuerDID with
+  | valid validDID =>
+      simp
+      simp [h] at h_untrusted
+      exact h_untrusted
+  | invalid _ =>
+      simp
 
 /-- Theorem: 人間が拒否した場合、応答は生成されない
 
@@ -285,14 +297,14 @@ noncomputable def executeMutualAuth
       presentedClaims: [
         {
           claimData: { data: "警察官資格", claimID: Some "police_officer" },
-          issuerDID: "did:amatelus:police_hq"  // 警察庁のDID
+          issuerDID: "did:amt:police_hq"  // 警察庁のDID
         },
         {
           claimData: { data: "管轄区域：東京都", claimID: Some "jurisdiction" },
-          issuerDID: "did:amatelus:police_hq"  // 警察庁のDID（自己署名可）
+          issuerDID: "did:amt:police_hq"  // 警察庁のDID（自己署名可）
         }
       ],
-      verifierDID: "did:amatelus:officer123",
+      verifierDID: "did:amt:officer123",
       timestamp: now()
     }
     ```

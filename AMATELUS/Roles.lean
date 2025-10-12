@@ -76,7 +76,8 @@ end TrustAnchorInfo
     連想リストとして実装され、ValidDIDをキーとしてTrustAnchorInfoを取得できる。
 
     **設計思想:**
-    - トラストアンカーは政府機関や認定認証局など、公的に信頼される存在
+    - トラストアンカーは各個人が自由に選択・管理する（政府機関、家族、友人など）
+    - 各WalletのtrustedAnchorsに登録されたDIDが「その人にとっての」トラストアンカー
     - ValidDIDを使用することで、型レベルで検証済みであることを保証
     - TrustAnchorInfoにValidDIDDocumentが含まれるため、整合性が保証される
 -/
@@ -396,36 +397,6 @@ structure Holder where
   wallets : List Wallet
   -- 不変条件: 少なくとも1つのWalletを持つ
   wallets_nonempty : wallets ≠ []
-
-/-- トラストアンカー: 自己署名のルート認証局として振る舞うHolder
-
-    **DID/VCモデルにおける役割:**
-    - トラストアンカーは固定的な役割ではなく、状況依存の役割
-    - Holderが自己署名のTrustAnchorVCとClaimDefinitionVCを持つことで、
-      トラストアンカーとして振る舞うことができる
-    - 型としてはHolderと同一（エイリアス）
-
-    **発行権限の管理:**
-    - Wallet内の自己署名ClaimDefinitionVCから発行権限を取得
-    - ClaimDefinitionVCは公開されており、誰でも確認可能
-    - VC発行時は、Wallet.credentialsから適切なClaimDefinitionVCを探して使用
--/
-abbrev TrustAnchor := Holder
-
-/-- 受託者: 上位認証局から認証を受けたVCを発行するHolder
-
-    **DID/VCモデルにおける役割:**
-    - 受託者は固定的な役割ではなく、状況依存の役割
-    - HolderがTrustAnchorから発行されたTrusteeVCを持つことで、
-      受託者として振る舞うことができる
-    - 型としてはHolderと同一（エイリアス）
-
-    **発行権限の管理:**
-    - Wallet内のTrusteeVCから発行権限を取得
-    - 一つのHolderが複数のTrustAnchorから異なる権限委譲を受けることが可能
-    - VC発行時は、Wallet.credentialsから適切なTrusteeVCを探して使用
--/
-abbrev Trustee := Holder
 
 /-- Issuer: VCを発行する権限を持つHolder
 

@@ -326,7 +326,6 @@ structure TrustAnchorVC extends VCBase where
 structure TrusteeVC extends VCBase where
   -- 受託者固有のクレーム
   authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
-  trustLevel : Nat                    -- 信頼レベル (1-5)
   deriving Repr
 
 /-- 国民識別情報VC

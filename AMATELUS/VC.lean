@@ -9,19 +9,6 @@ import W3C.VC
 
 -- ## Definition 2.2: Verifiable Credential
 
-/-- VCのコンテキストを表す型（W3C標準と同一） -/
-abbrev Context := W3C.Context
-
-/-- VCのタイプを表す型（W3C標準のCredentialTypeにマッピング） -/
-abbrev VCType := W3C.CredentialType
-
-/-- 失効情報を表す型（W3C標準のCredentialStatusにマッピング）
-
-    AMATELUSでは簡略化された失効情報を使用していましたが、
-    W3C標準のCredentialStatusに移行します。
--/
-abbrev RevocationInfo := Option W3C.CredentialStatus
-
 /-- クレームタイプを表す型 -/
 abbrev ClaimTypeBasic := String
 

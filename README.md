@@ -72,9 +72,13 @@ VC := {
   subject: DID_subject,
   claims: Claims,
   signature: σ,
-  credentialStatus: RevocationInfo
+  credentialStatus: RevocationInfo,
+  delegator: Option DID_anchor
 }
 ```
+ここで、`delegator`は1階層制限のための委任者識別子である：
+- `None`: トラストアンカーが直接発行（0階層）
+- `Some DID_anchor`: トラストアンカー経由で委任者が発行（1階層）
 
 **Definition 2.3 (Zero-Knowledge Proof with Mutual Nonce)**
 ```

@@ -22,6 +22,9 @@ import AMATELUS.TrustChain
 -- Wallet/Holder/Issuer/Verifier操作定義
 import AMATELUS.Operations
 
+-- 通信レイヤー定義
+import AMATELUS.Network
+
 -- リプレイ攻撃耐性の証明
 import AMATELUS.ReplayResistance
 

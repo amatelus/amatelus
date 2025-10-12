@@ -31,7 +31,7 @@ def extractPublicKey (doc : W3C.DIDDocument) : Option PublicKey :=
 /-- 正規のDIDDocument（所有権検証済み）
 
     以下のいずれかの方法で検証されたDIDDocument：
-    1. **Issuerによるチャレンジ検証**: DIDConnでHolderが秘密鍵所有権を証明
+    1. **Issuerによるチャレンジ検証**: DIDCommでHolderが秘密鍵所有権を証明
     2. **トラストアンカー**: 政府配布のウォレットに登録済み、または公式サイトからダウンロード
 
     **W3C DID仕様への準拠:**
@@ -166,7 +166,7 @@ structure InvalidDID where
     - ZKP/VC/DIDPairと完全に統一された設計
     - ValidDIDにはハッシュ値を保持（did:amt仕様に準拠）
 
-    **AMATELUSのDIDConn（VC発行フロー）:**
+    **AMATELUSのDIDComm（VC発行フロー）:**
     - HolderがIssuerにDIDを送信してVC発行を依頼
     - IssuerはDIDを受け取り、VCに埋め込む（issuer/subjectフィールド）
     - Walletバグで間違ったDIDを送ると`invalid`になる

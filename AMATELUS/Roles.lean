@@ -408,17 +408,26 @@ structure TrustPolicy where
 
 /-- Holder: VCを保持し、必要に応じて提示する主体
 
-    Holderは正規のWallet（Wallet.isValid）を保持する必要がある。
-    これにより、悪意のあるHolderが不正なIdentityを使用することを防ぐ。
+    Holderは1つ以上のWalletを保持する。
+
+    **設計思想（自己責任）:**
+    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
+    - すべてのWalletアプリにはバグが存在しうる（現実的な仮定）
+    - バグのあるWalletを使うかどうかは利用者の自己責任
+    - Verifierは暗号的検証のみに依存し、Wallet実装を信頼しない
+    - バグのあるWalletが生成したZKP/VCは暗号的検証で弾かれる
 -/
 structure Holder where
-  wallet : Wallet
-  -- 不変条件: Walletは正規である
-  wallet_valid : Wallet.isValid wallet
+  wallets : List Wallet
+  -- 不変条件: 少なくとも1つのWalletを持つ
+  wallets_nonempty : wallets ≠ []
 
 /-- トラストアンカー: 自己署名のルート認証局
 
-    トラストアンカーも正規のWalletを保持する必要がある。
+    **設計思想（自己責任）:**
+    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
+    - バグのあるWalletで不正な署名を生成しても、Verifierの暗号的検証で弾かれる
+    - トラストアンカーの運営者がWalletを選択するのは自己責任
 -/
 structure TrustAnchor where
   wallet : Wallet
@@ -427,12 +436,13 @@ structure TrustAnchor where
   authorizedClaimIDs : List ClaimID
   -- ルート認証局証明書（自己署名）
   rootCertificate : RootAuthorityCertificate
-  -- 不変条件: Walletは正規である
-  wallet_valid : Wallet.isValid wallet
 
 /-- 受託者: 上位認証局から認証を受けた発行者
 
-    受託者も正規のWalletを保持する必要がある。
+    **設計思想（自己責任）:**
+    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
+    - バグのあるWalletで不正な署名を生成しても、Verifierの暗号的検証で弾かれる
+    - 受託者の運営者がWalletを選択するのは自己責任
 -/
 structure Trustee where
   wallet : Wallet
@@ -441,8 +451,6 @@ structure Trustee where
   authorizedClaimIDs : List ClaimID
   -- 発行者としての認証情報（上位認証局から発行されたVC）
   issuerCredential : UnknownVC
-  -- 不変条件: Walletは正規である
-  wallet_valid : Wallet.isValid wallet
 
 /-- Issuer: VCを発行する権限を持つ主体
     発行者はトラストアンカー（自己署名のルート認証局）または
@@ -457,7 +465,11 @@ inductive Issuer
     VerifierVCを保持する。検証時には、Holderに対してこれらのVerifierVCを
     提示し、自身が正当な検証者であることを証明する。
 
-    検証者も正規のWalletを保持する必要がある。
+    **設計思想（自己責任）:**
+    - Walletの正規性（Wallet.isValid）は不変条件として要求しない
+    - Verifierは暗号的検証のみに依存し、自身のWallet実装には依存しない
+      （`verifier_cryptographic_soundness`定理で証明済み）
+    - 検証者の運営者がWalletを選択するのは自己責任
 -/
 structure Verifier where
   -- アイデンティティと資格情報を保持するWallet
@@ -465,8 +477,6 @@ structure Verifier where
   wallet : Wallet
   -- 検証ポリシー（どの発行者を信頼するか等）
   trustPolicy : TrustPolicy
-  -- 不変条件: Walletは正規である
-  wallet_valid : Wallet.isValid wallet
 
 -- ## AMATELUSプロトコルの安全性定理
 --
@@ -475,35 +485,23 @@ structure Verifier where
 -- - 悪意ある他者とは暗号理論の範囲でのみ信頼が成立
 -- - Wallet選択、操作、デバイス故障、ソーシャルハッキングは自己責任の範囲
 
-namespace UnknownDID
+/-- Theorem: ValidDIDとValidDIDDocumentのペアは検証に成功する
 
-/-- Theorem: Holderが提示する正規のDIDDocumentは検証に成功する（完全性）
-
-    HolderがWallet内の正規のDID-ValidDIDDocumentペアを提示した場合、
-    Verifierの検証は必ず成功する。
-
-    この定理は、Holder構造体の不変条件（wallet_valid）により保証される。
+    型レベルで正規と証明されたValidDIDとValidDIDDocumentのペアは、
+    UnknownDID.isValidの検証に成功する。
 
     **設計思想:**
-    - IdentityはValidDIDとValidDIDDocumentを使用するため、型レベルで検証済み
-    - Wallet.isValidにより、identity.did = fromValidDocument identity.didDocumentが保証される
-    - したがって、UnknownDID.isValidは常にtrueを返す
+    この定理は型システムの健全性を示すもので、Wallet実装とは独立。
+    ValidDIDはUnknownDID.fromValidDocumentから生成されたものであり、
+    定義から自明に検証に成功する。
 -/
-theorem holder_valid_pair_passes :
-  ∀ (holder : Holder) (identity : Identity),
-    identity ∈ holder.wallet.identities →
-    isValid (UnknownDID.valid identity.did) identity.didDocument := by
-  intro holder identity h_mem
-  unfold isValid
-  -- Holder構造体の不変条件により、identity.did = fromValidDocument identity.didDocument
-  have h_eq := Wallet.valid_wallet_identity_consistency holder.wallet identity
-    holder.wallet_valid h_mem
-  -- h_eqを使ってgoalを書き換える
-  -- UnknownDID.valid identity.did = UnknownDID.fromValidDocument identity.didDocument
-  -- この式は h_eq から直接従う（両辺をUnknownDID.validで包むだけ）
+theorem valid_did_pair_passes :
+  ∀ (did : ValidDID) (doc : ValidDIDDocument),
+    did = UnknownDID.fromValidDocument doc →
+    UnknownDID.isValid (UnknownDID.valid did) doc := by
+  intro did doc h_eq
+  unfold UnknownDID.isValid
   simp only [h_eq]
-
-end UnknownDID
 
 -- ## プロトコルの安全性
 
@@ -535,29 +533,45 @@ theorem verifier_cryptographic_soundness :
   unfold UnknownZKP.isValid at h_valid
   exact h_valid
 
-/-- Theorem: プロトコルの健全性（Protocol Soundness）
+/-- Theorem: プロトコルの暗号的健全性（Protocol Cryptographic Soundness）
 
-    AMATELUSプロトコル全体の健全性:
-    - 正規のHolderは検証に成功する（完全性）
-    - 不正なHolderは検証に失敗する（健全性）
+    AMATELUSプロトコルは暗号的検証のみに依存し、Wallet実装には依存しない。
 
-    これにより、以下が保証される:
-    1. 自己責任の明確化: Wallet選択、操作、デバイス故障は利用者の責任
-    2. 暗号的信頼: 悪意ある他者とは暗号理論の範囲でのみ信頼
+    **現実的な設計思想:**
+    - すべてのアプリにバグがあるのが現実
+    - しかし、暗号的に不正なデータ（無効な署名、改ざんされたデータ）は検証失敗
+    - Wallet実装のバグは、暗号的検証で弾かれるため他者に影響しない
+    - 悪意ある他者とは暗号理論の範囲でのみ信頼が成立
+
+    **保証される性質:**
+    1. Verifierは暗号的検証のみに依存（ZKP検証、署名検証、トラストチェーン検証）
+    2. 不正な暗号的ペア（DID ↔ DIDDocument の不一致）は検証失敗
+    3. Wallet実装の詳細（バグの有無）は検証結果に影響しない
+
+    **影響範囲の局所化:**
+    - Walletのバグは利用者自身にのみ影響（自己責任）
+    - バグのあるWalletが生成した不正なデータは、Verifierの暗号的検証で弾かれる
+    - したがって、他者に影響を与えることはない
 -/
 theorem protocol_soundness :
-  -- 1. 完全性: 正規のHolderは検証成功
-  (∀ (holder : Holder) (identity : Identity),
-    identity ∈ holder.wallet.identities →
-    UnknownDID.isValid (UnknownDID.valid identity.did) identity.didDocument) ∧
-  -- 2. 健全性: 不正なペアは検証失敗
+  -- 1. Verifierは暗号的検証のみに依存
+  (∀ (_verifier : Verifier) (zkp : UnknownZKP) (relation : Relation),
+    UnknownZKP.isValid zkp relation →
+    UnknownZKP.verify zkp relation = true) ∧
+  -- 2. 不正な暗号的ペアは検証失敗（型システムの健全性）
   (∀ (did : UnknownDID) (doc : ValidDIDDocument),
     UnknownDID.isInvalidPair did doc →
-    ¬UnknownDID.isValid did doc) := by
+    ¬UnknownDID.isValid did doc) ∧
+  -- 3. ValidなVC/ZKPは常に検証成功（暗号的完全性）
+  (∀ (vc : ValidVC), UnknownVC.isValid (UnknownVC.valid vc)) := by
   constructor
-  · -- 完全性
-    intro holder identity h_mem
-    exact UnknownDID.holder_valid_pair_passes holder identity h_mem
-  · -- 健全性
+  · -- 1. Verifierの暗号的健全性
+    intro _verifier zkp relation h_valid
+    exact verifier_cryptographic_soundness _verifier zkp relation h_valid
+  constructor
+  · -- 2. 不正なペアは検証失敗
     intro did doc h_invalid
     exact UnknownDID.invalid_pair_fails_validation did doc h_invalid
+  · -- 3. ValidなVCは常に検証成功
+    intro vc
+    exact UnknownVC.valid_vc_passes vc

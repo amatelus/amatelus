@@ -209,22 +209,22 @@ end Holder
 
 /-- VCのコンテキストを生成（W3C標準）
 -/
-def standardVCContext : Context :=
+def standardVCContext : W3C.Context :=
   { value := "https://www.w3.org/2018/credentials/v1" }
 
 /-- VCのタイプを生成（標準的な属性VC）
 -/
-def standardAttributeVCType : VCType :=
+def standardAttributeVCType : W3C.CredentialType :=
   { value := "UnknownVC,AttributeCredential" }
 
 /-- VCを発行する関数
 
     **AMATELUSの設計:**
-    - IssuerはDIDConn（またはZKP）で接続確立済み
+    - IssuerはDIDComm（またはZKP）で接続確立済み
     - IssuerはHolderのValidDIDを既に取得・検証済み
     - IssuerとSubjectのDIDは両方ともValidDIDである必要がある
 
-    **DIDConnフロー:**
+    **DIDCommフロー:**
     1. HolderがDIDDocumentを提示
     2. Issuerがチャレンジ・レスポンスで秘密鍵所有権を検証
     3. 検証成功 → Issuerは ValidDID を取得
@@ -279,7 +279,7 @@ noncomputable def issueCredential
     4. ValidVCとして構築されるため、UnknownVC.isValidが成立
 
     **AMATELUSの設計:**
-    - IssuerはDIDConn（またはZKP）でValidDIDを取得済み
+    - IssuerはDIDComm（またはZKP）でValidDIDを取得済み
     - 発行されるVCは常に暗号学的に有効
 
     **重要な注意:**

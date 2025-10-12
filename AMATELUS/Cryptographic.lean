@@ -46,13 +46,13 @@ theorem did_collision_quantum_secure :
     注意: 新しい設計では、ValidDIDDocumentの場合のみ検証が意味を持ちます。
 -/
 theorem did_verification_correctness :
-  ∀ (did : DID) (vdoc : ValidDIDDocument),
-    DID.isValid did vdoc ↔ did = DID.valid (DID.fromValidDocument vdoc) := by
+  ∀ (did : UnknownDID) (vdoc : ValidDIDDocument),
+    UnknownDID.isValid did vdoc ↔ did = UnknownDID.valid (UnknownDID.fromValidDocument vdoc) := by
   intro did vdoc
   constructor
   · -- DID.isValid did vdoc → did = DID.valid (DID.fromValidDocument vdoc)
     intro h_valid
-    unfold DID.isValid at h_valid
+    unfold UnknownDID.isValid at h_valid
     cases did with
     | valid vdid =>
       -- h_valid: vdid = DID.fromValidDocument vdoc
@@ -63,7 +63,7 @@ theorem did_verification_correctness :
   · -- did = DID.valid (DID.fromValidDocument vdoc) → DID.isValid did vdoc
     intro h_eq
     rw [h_eq]
-    unfold DID.isValid
+    unfold UnknownDID.isValid
     -- goal: DID.fromValidDocument vdoc = DID.fromValidDocument vdoc
     rfl
 
@@ -74,16 +74,16 @@ theorem did_verification_correctness :
 
     注意: 新しい設計では、ValidDIDDocumentの場合のみ検証が意味を持ちます。
 -/
-def did_resolution_is_independent (did : DID) (vdoc : ValidDIDDocument) : Prop :=
+def did_resolution_is_independent (did : UnknownDID) (vdoc : ValidDIDDocument) : Prop :=
   -- 検証は (did, vdoc) ペアのみで完結
-  DID.isValid did vdoc ∧
+  UnknownDID.isValid did vdoc ∧
   -- 外部クエリは不要
   True  -- 実装では外部依存がないことを保証
 
 theorem external_resolver_independence :
-  ∀ (did : DID) (vdoc : ValidDIDDocument),
+  ∀ (did : UnknownDID) (vdoc : ValidDIDDocument),
     did_resolution_is_independent did vdoc →
-    DID.isValid did vdoc := by
+    UnknownDID.isValid did vdoc := by
   intro did vdoc h
   exact h.1
 
@@ -93,11 +93,11 @@ theorem external_resolver_independence :
 -/
 theorem did_verification_completeness :
   ∀ (vdoc : ValidDIDDocument),
-    let did := DID.valid (DID.fromValidDocument vdoc)
-    DID.isValid did vdoc := by
+    let did := UnknownDID.valid (UnknownDID.fromValidDocument vdoc)
+    UnknownDID.isValid did vdoc := by
   intro vdoc
   -- fromValidDocument の定義により、生成されたDIDは常に有効
-  unfold DID.isValid
+  unfold UnknownDID.isValid
   rfl
 
 -- ## Theorem 3.3: VC Signature Completeness
@@ -105,10 +105,10 @@ theorem did_verification_completeness :
 /-- Theorem 3.3: VC署名検証の完全性
     正当に発行されたVCの署名検証は常に成功する -/
 theorem vc_signature_completeness :
-  ∀ (_vc : VerifiableCredential) (sk : SecretKey) (pk : PublicKey),
+  ∀ (_vc : UnknownVC) (sk : SecretKey) (pk : PublicKey),
     let _kp := KeyPair.mk sk pk
     let σ := amatSignature.sign sk []  -- VCのバイト表現
-    -- Note: VerifiableCredentialはinductive typeなので、with構文は使用できない
+    -- Note: UnknownVCはinductive typeなので、with構文は使用できない
     amatSignature.verify pk [] σ = true := by
   intro _vc sk pk
   -- SignatureScheme の completeness プロパティから直接導かれる
@@ -144,12 +144,12 @@ theorem vc_signature_forgery_quantum_secure :
     - ValidVCの場合: 署名を検証
     - InvalidVCの場合: signatureがないため、検証は失敗（false）
 -/
-noncomputable def cryptographic_verify (vc : VerifiableCredential) (issuerPK : PublicKey) : Bool :=
+noncomputable def cryptographic_verify (vc : UnknownVC) (issuerPK : PublicKey) : Bool :=
   match vc with
-  | VerifiableCredential.valid vvc =>
+  | UnknownVC.valid vvc =>
       -- ValidVCの場合: 署名を検証
       amatSignature.verify issuerPK [] vvc.signature
-  | VerifiableCredential.invalid _ =>
+  | UnknownVC.invalid _ =>
       -- InvalidVCの場合: 署名がないため検証失敗
       false
 
@@ -179,7 +179,7 @@ def policy_compliant (mode : String) (requirements : String) : Bool :=
       false
 
 /-- プロトコル安全性の定義 -/
-def protocol_safe (vc : VerifiableCredential) (mode : String)
+def protocol_safe (vc : UnknownVC) (mode : String)
     (issuerPK : PublicKey) (requirements : String) : Prop :=
   cryptographic_verify vc issuerPK = true ∧
   policy_compliant mode requirements = true
@@ -187,7 +187,7 @@ def protocol_safe (vc : VerifiableCredential) (mode : String)
 /-- Theorem 3.5: 失効確認に依存しないプロトコル安全性
     失効リスト不在時のプロトコル安全性は暗号学的検証により保証される -/
 theorem revocation_independent_safety :
-  ∀ (vc : VerifiableCredential) (mode : String) (issuerPK : PublicKey)
+  ∀ (vc : UnknownVC) (mode : String) (issuerPK : PublicKey)
     (requirements : String),
     protocol_safe vc mode issuerPK requirements →
     cryptographic_verify vc issuerPK = true := by
@@ -196,7 +196,7 @@ theorem revocation_independent_safety :
 
 /-- プロトコルの核心的安全性は失効確認とは独立である -/
 theorem core_safety_independence :
-  ∀ (vc : VerifiableCredential) (issuerPK : PublicKey),
+  ∀ (vc : UnknownVC) (issuerPK : PublicKey),
     -- 暗号学的検証が成功すれば、核心的安全性は保証される
     cryptographic_verify vc issuerPK = true →
     -- 失効確認は付加的なポリシー検証
@@ -231,7 +231,7 @@ theorem hash_uniqueness_quantum_secure :
     注意: 新しい設計では、ValidDIDDocument（所有権検証済み）の場合のみ
     所有権証明が意味を持ちます。
 -/
-def proves_ownership (sk : SecretKey) (_did : DID) (vdoc : ValidDIDDocument) : Prop :=
+def proves_ownership (sk : SecretKey) (_did : UnknownDID) (vdoc : ValidDIDDocument) : Prop :=
   -- 公開鍵がDIDドキュメント内の公開鍵と一致
   ∃ (pk : PublicKey),
     extractPublicKey vdoc.w3cDoc = some pk ∧
@@ -242,7 +242,7 @@ def proves_ownership (sk : SecretKey) (_did : DID) (vdoc : ValidDIDDocument) : P
 theorem did_ownership_proof :
   ∀ (sk : SecretKey) (pk : PublicKey) (vdoc : ValidDIDDocument),
     extractPublicKey vdoc.w3cDoc = some pk →
-    proves_ownership sk (DID.valid (DID.fromValidDocument vdoc)) vdoc := by
+    proves_ownership sk (UnknownDID.valid (UnknownDID.fromValidDocument vdoc)) vdoc := by
   intro sk pk vdoc h
   unfold proves_ownership
   refine ⟨pk, h, ?_⟩

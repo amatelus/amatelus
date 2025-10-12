@@ -27,10 +27,10 @@ namespace Holder
 -/
 def storeCredential
     (wallet : Wallet)
-    (vc : VerifiableCredential)
-    (holderDID : DID)
-    (_h_valid : VerifiableCredential.isValid vc)
-    (_h_subject : VerifiableCredential.getSubject vc = holderDID)
+    (vc : UnknownVC)
+    (holderDID : UnknownDID)
+    (_h_valid : UnknownVC.isValid vc)
+    (_h_subject : UnknownVC.getSubject vc = holderDID)
     (_h_has_did : Wallet.hasDID wallet holderDID) : Wallet :=
   { wallet with
     credentials := vc :: wallet.credentials }
@@ -38,8 +38,8 @@ def storeCredential
 /-- Walletから特定のVCを取得 -/
 def getCredential
     (wallet : Wallet)
-    (predicate : VerifiableCredential → Bool)
-    : Option VerifiableCredential :=
+    (predicate : UnknownVC → Bool)
+    : Option UnknownVC :=
   wallet.credentials.find? predicate
 
 /-- ZKP生成の材料をまとめた構造体
@@ -49,7 +49,7 @@ def getCredential
 -/
 structure ZKPMaterial where
   precomputedProofs : List PrecomputedZKP
-  credential : VerifiableCredential
+  credential : UnknownVC
   statement : PublicInput
   nonce : Nonce
   secretKey : SecretKey
@@ -91,7 +91,7 @@ def zkpRelation : Relation :=
     amatZKP.proverが生成したProofを、AMATELUSのZeroKnowledgeProof型に変換します。
     生成されたProofは暗号学的に有効であるため、valid ZKPとして構築されます。
 -/
-noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : ZeroKnowledgeProof :=
+noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : UnknownZKP :=
   -- ValidZKPとして構築
   -- amatZKP.completenessにより、このZKPは検証に成功することが保証される
   let holderZKP : HolderCredentialZKPCore := {
@@ -105,7 +105,7 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : ZeroKnow
     verifierNonce := material.nonce  -- Verifierが生成したnonce
     claimedAttributes := "ZKP-based credential presentation"
   }
-  ZeroKnowledgeProof.valid {
+  UnknownZKP.valid {
     zkpType := Sum.inr holderZKP
   }
 
@@ -124,7 +124,7 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : ZeroKnow
     - NIST最小要件: 128ビット
     - 結論: ポスト量子暗号時代でも安全
 -/
-noncomputable def universalZKPOracle (material : ZKPMaterial) : ZeroKnowledgeProof :=
+noncomputable def universalZKPOracle (material : ZKPMaterial) : UnknownZKP :=
   -- 材料から証人と公開入力を抽出
   let witness := zkpMaterialToWitness material
   let publicInput := zkpMaterialToPublicInput material
@@ -148,16 +148,16 @@ noncomputable def universalZKPOracle (material : ZKPMaterial) : ZeroKnowledgePro
 -/
 theorem universalZKPOracle_isValid :
   ∀ (material : ZKPMaterial) (relation : Relation),
-    ZeroKnowledgeProof.isValid (universalZKPOracle material) relation := by
+    UnknownZKP.isValid (universalZKPOracle material) relation := by
   intro material relation
   -- universalZKPOracleの定義を展開
   unfold universalZKPOracle
   -- proofToZKPの定義を展開
   unfold proofToZKP
   -- ZeroKnowledgeProof.isValidの定義を展開
-  unfold ZeroKnowledgeProof.isValid
+  unfold UnknownZKP.isValid
   -- ZeroKnowledgeProof.verifyの定義を展開
-  unfold ZeroKnowledgeProof.verify
+  unfold UnknownZKP.verify
   -- valid ZKPは常にtrue
   rfl
 
@@ -168,10 +168,10 @@ theorem universalZKPOracle_isValid :
 -/
 noncomputable def combinePrecomputedProofWithNonce
     (precomputedProofs : List PrecomputedZKP)
-    (credential : VerifiableCredential)
+    (credential : UnknownVC)
     (statement : PublicInput)
     (nonce : Nonce)
-    (secretKey : SecretKey) : ZeroKnowledgeProof :=
+    (secretKey : SecretKey) : UnknownZKP :=
   -- 材料を構造化
   let material : ZKPMaterial := {
     precomputedProofs := precomputedProofs
@@ -190,11 +190,11 @@ noncomputable def combinePrecomputedProofWithNonce
 -/
 noncomputable def presentCredentialAsZKP
     (wallet : Wallet)
-    (vc : VerifiableCredential)
+    (vc : UnknownVC)
     (holderIdentity : Identity)
     (statement : PublicInput)
     (nonce : Nonce)
-    (_h_has_identity : holderIdentity ∈ wallet.identities) : ZeroKnowledgeProof :=
+    (_h_has_identity : holderIdentity ∈ wallet.identities) : UnknownZKP :=
   -- Wallet内の指定されたIdentityの秘密鍵を使ってZKP生成
   -- 事前計算されたProofをnonceと結合
   combinePrecomputedProofWithNonce
@@ -216,7 +216,7 @@ def standardVCContext : Context :=
 /-- VCのタイプを生成（標準的な属性VC）
 -/
 def standardAttributeVCType : VCType :=
-  { value := "VerifiableCredential,AttributeCredential" }
+  { value := "UnknownVC,AttributeCredential" }
 
 /-- 失効情報を生成（初期状態：失効なし）
 
@@ -237,7 +237,7 @@ def noRevocationInfo : RevocationInfo :=
     **実装:**
     1. Claimsに署名を生成（amatSignature.sign）
     2. AttributeVCとして構築
-    3. VerifiableCredential.validとして返す
+    3. UnknownVC.validとして返す
 
     **重要な原則:**
     - 発行は自由（技術的に制限不可能）
@@ -245,10 +245,10 @@ def noRevocationInfo : RevocationInfo :=
     - これにより「Issuer」という特別な役割は不要
 -/
 noncomputable def issueCredential
-    (issuerDID : DID)
+    (issuerDID : UnknownDID)
     (issuerSecretKey : SecretKey)
-    (subjectDID : DID)
-    (claims : Claims) : VerifiableCredential :=
+    (subjectDID : UnknownDID)
+    (claims : Claims) : UnknownVC :=
   -- Claimsをバイト列にシリアライズ（簡略化）
   let claimsBytes := claims.data.toUTF8.data.toList
   -- 秘密鍵で署名
@@ -287,31 +287,31 @@ noncomputable def issueCredential
     subjectDID := subjectDID
     signature := signature  -- Stage 5: ValidVCに署名を含める
   }
-  -- VerifiableCredentialとして返す
-  VerifiableCredential.valid validVC
+  -- UnknownVCとして返す
+  UnknownVC.valid validVC
 
 /-- 定理: 発行されたVCは暗号学的に有効である
 
     **証明の構造:**
     1. issueCredentialはamatSignature.signを使って署名を生成
     2. amatSignature.completenessにより、署名は検証に成功
-    3. ValidVCとして構築されるため、VerifiableCredential.isValidが成立
+    3. ValidVCとして構築されるため、UnknownVC.isValidが成立
 
     **重要な注意:**
     この定理は「暗号学的に有効」であることのみを保証します。
     「信頼できる」かどうかはVerifierの信頼ポリシーによって決まります。
 -/
 theorem issued_credential_is_cryptographically_valid :
-  ∀ (issuerDID subjectDID : DID) (issuerSecretKey : SecretKey) (claims : Claims),
+  ∀ (issuerDID subjectDID : UnknownDID) (issuerSecretKey : SecretKey) (claims : Claims),
     let vc := issueCredential issuerDID issuerSecretKey subjectDID claims
-    VerifiableCredential.isValid vc := by
+    UnknownVC.isValid vc := by
   intro issuerDID subjectDID issuerSecretKey claims
   -- issueCredentialの定義により、ValidVCとして構築される
   unfold issueCredential
-  -- VerifiableCredential.isValidの定義を展開
-  unfold VerifiableCredential.isValid
-  -- VerifiableCredential.verifySignatureの定義を展開
-  unfold VerifiableCredential.verifySignature
+  -- UnknownVC.isValidの定義を展開
+  unfold UnknownVC.isValid
+  -- UnknownVC.verifySignatureの定義を展開
+  unfold UnknownVC.verifySignature
   -- ValidVCは常にtrue
   rfl
 
@@ -320,7 +320,8 @@ theorem issued_credential_is_cryptographically_valid :
 namespace Verifier
 
 /-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す -/
-def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : DID) : Option DID :=
+def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : UnknownDID) :
+    Option UnknownDID :=
   dict.find? (fun (_anchorDID, info) => info.trustees.contains trusteeDID)
     |>.map (fun (anchorDID, _) => anchorDID)
 
@@ -336,8 +337,8 @@ def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : DID) : Opti
 -/
 def checkTrustChainRecursive
     (dict : TrustAnchorDict)
-    (trustedRoots : List DID)
-    (issuerDID : DID)
+    (trustedRoots : List UnknownDID)
+    (issuerDID : UnknownDID)
     (depth : Nat) : Prop :=
   match depth with
   | 0 =>
@@ -360,9 +361,9 @@ def checkTrustChainRecursive
 def verifyTrustChain
     (dict : TrustAnchorDict)
     (policy : TrustPolicy)
-    (vc : VerifiableCredential) : Prop :=
+    (vc : UnknownVC) : Prop :=
   -- 発行者DIDを取得
-  let issuerDID := VerifiableCredential.getIssuer vc
+  let issuerDID := UnknownVC.getIssuer vc
   -- 発行者がルート認証局リストに含まれているか確認
   (issuerDID ∈ policy.trustedRoots) ∨
   -- または、信頼チェーンを辿る（深さ制限あり）
@@ -371,10 +372,10 @@ def verifyTrustChain
 /-- VerifierがVCを検証 -/
 def verifyCredential
     (verifier : Verifier)
-    (vc : VerifiableCredential)
+    (vc : UnknownVC)
     : Prop :=
   -- 暗号学的検証
-  VerifiableCredential.isValid vc ∧
+  UnknownVC.isValid vc ∧
   -- 信頼ポリシーに基づく検証（VerifierのWalletから信頼するトラストアンカー辞書を使用）
   verifyTrustChain verifier.wallet.trustedAnchors verifier.trustPolicy vc
 
@@ -402,9 +403,9 @@ end Verifier
     - Basic.lean:1457 `verifier_cryptographic_soundness`で形式化済み
 -/
 theorem wallet_store_preserves_validity :
-  ∀ (wallet : Wallet) (vc : VerifiableCredential) (holderDID : DID)
-    (h_valid : VerifiableCredential.isValid vc)
-    (h_subject : VerifiableCredential.getSubject vc = holderDID)
+  ∀ (wallet : Wallet) (vc : UnknownVC) (holderDID : UnknownDID)
+    (h_valid : UnknownVC.isValid vc)
+    (h_subject : UnknownVC.getSubject vc = holderDID)
     (h_has_did : Wallet.hasDID wallet holderDID),
     -- 前提: walletが正規
     Wallet.isValid wallet →
@@ -422,16 +423,16 @@ theorem wallet_store_preserves_validity :
 /-- Verifier操作: 有効なVCかつ信頼できるissuerの検証は成功する
 
     **証明の構造:**
-    1. VerifiableCredential.isValid vc が成立（暗号学的に有効）
+    1. UnknownVC.isValid vc が成立（暗号学的に有効）
     2. getIssuer vcがtrustedRootsに含まれる（Verifierが信頼）
     3. Verifier.verifyCredentialの定義により、両方の条件を満たせば検証成功
 
     **Stage 3設計:** getIssuerは直接DIDを返す（ValidVCは型レベルで保証）
 -/
 theorem verifier_accepts_valid_credential :
-  ∀ (verifier : Verifier) (vc : VerifiableCredential),
-    VerifiableCredential.isValid vc →
-    VerifiableCredential.getIssuer vc ∈ verifier.trustPolicy.trustedRoots →
+  ∀ (verifier : Verifier) (vc : UnknownVC),
+    UnknownVC.isValid vc →
+    UnknownVC.getIssuer vc ∈ verifier.trustPolicy.trustedRoots →
     verifier.verifyCredential vc := by
   intro verifier vc h_valid h_trusted
   -- Verifier.verifyCredentialの定義を展開

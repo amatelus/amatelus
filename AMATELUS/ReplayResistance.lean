@@ -33,7 +33,7 @@ structure VerificationSession where
 -/
 structure ZKPPresentation where
   session : VerificationSession
-  zkp : ZeroKnowledgeProof
+  zkp : UnknownZKP
   presentedAt : Timestamp
 
 /-- Verifierのナンス履歴
@@ -91,9 +91,9 @@ structure NoncePair where
 
     この構造により、同じZKPは必ず同じ{(nonce1, nonce2), statement}に束縛される。
 -/
-def zkpGetNoncePair (zkp : ZeroKnowledgeProof) : NoncePair :=
+def zkpGetNoncePair (zkp : UnknownZKP) : NoncePair :=
   match zkp with
-  | ZeroKnowledgeProof.valid vzkp =>
+  | UnknownZKP.valid vzkp =>
       match vzkp.zkpType with
       | Sum.inl verifierAuthZKP =>
           -- VerifierAuthZKPの場合、単一のchallengeNonceを両方に使用
@@ -103,7 +103,7 @@ def zkpGetNoncePair (zkp : ZeroKnowledgeProof) : NoncePair :=
           -- HolderCredentialZKPの場合、明示的に格納された両方のnonceを取得
           { holderNonce := holderCredentialZKP.holderNonce,
             verifierNonce := holderCredentialZKP.verifierNonce }
-  | ZeroKnowledgeProof.invalid izkp =>
+  | UnknownZKP.invalid izkp =>
       match izkp.zkpType with
       | Sum.inl verifierAuthZKP =>
           -- InvalidZKPの場合もプレースホルダ
@@ -118,12 +118,12 @@ def zkpGetNoncePair (zkp : ZeroKnowledgeProof) : NoncePair :=
     単方向プロトコル（Holderが一方的に提示）の場合は、
     Verifierのnonce2のみを使用する。
 -/
-noncomputable def zkpGetNonce (zkp : ZeroKnowledgeProof) : Nonce :=
+noncomputable def zkpGetNonce (zkp : UnknownZKP) : Nonce :=
   (zkpGetNoncePair zkp).verifierNonce
 
 /-- ZKPから証明内容を取得 -/
-def zkpGetStatement (zkp : ZeroKnowledgeProof) : Statement :=
-  (ZeroKnowledgeProof.getCore zkp).publicInput
+def zkpGetStatement (zkp : UnknownZKP) : Statement :=
+  (UnknownZKP.getCore zkp).publicInput
 
 /-- ZKPの構造的一意性
 
@@ -137,7 +137,7 @@ def zkpGetStatement (zkp : ZeroKnowledgeProof) : Statement :=
     - リプレイ攻撃の証明には、nonceとstatementの一意性のみが必要
 -/
 theorem zkp_structure_unique :
-  ∀ (zkp₁ zkp₂ : ZeroKnowledgeProof),
+  ∀ (zkp₁ zkp₂ : UnknownZKP),
     zkp₁ = zkp₂ →
     zkpGetNoncePair zkp₁ = zkpGetNoncePair zkp₂ ∧
     zkpGetStatement zkp₁ = zkpGetStatement zkp₂ := by
@@ -200,7 +200,7 @@ theorem nonce_pair_unique_if_either_unique :
 
     注: 単方向プロトコル用の定義。Verifierのnonce（nonce2）のみをチェック。
 -/
-noncomputable def nonceIsBoundToZKP (nonce : Nonce) (zkp : ZeroKnowledgeProof) : Prop :=
+noncomputable def nonceIsBoundToZKP (nonce : Nonce) (zkp : UnknownZKP) : Prop :=
   zkpGetNonce zkp = nonce
 
 /-- ナンスペアがZKPに束縛されていることを表す述語（相互認証用）
@@ -221,7 +221,7 @@ noncomputable def nonceIsBoundToZKP (nonce : Nonce) (zkp : ZeroKnowledgeProof) :
     - publicInput.data = serialize(claims) || nonce1.value || nonce2.value
     - 両方のnonceが公開入力に含まれる
 -/
-def noncePairIsBoundToZKP (pair : NoncePair) (zkp : ZeroKnowledgeProof) : Prop :=
+def noncePairIsBoundToZKP (pair : NoncePair) (zkp : UnknownZKP) : Prop :=
   zkpGetNoncePair zkp = pair
 
 /-- Verifierがナンスを検証する述語
@@ -230,7 +230,7 @@ def noncePairIsBoundToZKP (pair : NoncePair) (zkp : ZeroKnowledgeProof) : Prop :
     1. ZKPに含まれるナンスが、セッションで発行したナンスと一致すること
     2. このナンスが過去に使用されていないこと
 -/
-def verifierChecksNonce (session : VerificationSession) (zkp : ZeroKnowledgeProof)
+def verifierChecksNonce (session : VerificationSession) (zkp : UnknownZKP)
     (history : NonceHistory) : Prop :=
   -- ナンスがZKPに束縛されている
   nonceIsBoundToZKP session.nonce zkp ∧
@@ -273,7 +273,7 @@ structure ReplayAttack where
     - よって、どちらか一方が一意なnonceを生成すれば、ペア全体が一意になる
 -/
 theorem nonce_pair_binding_is_unique :
-  ∀ (zkp : ZeroKnowledgeProof) (pair₁ pair₂ : NoncePair),
+  ∀ (zkp : UnknownZKP) (pair₁ pair₂ : NoncePair),
     noncePairIsBoundToZKP pair₁ zkp →
     noncePairIsBoundToZKP pair₂ zkp →
     pair₁ = pair₂ := by
@@ -309,7 +309,7 @@ theorem nonce_pair_binding_is_unique :
     - よってリプレイ攻撃が成立してしまう（これは防がなければならない）
 -/
 theorem nonce_binding_is_unique :
-  ∀ (zkp : ZeroKnowledgeProof) (nonce₁ nonce₂ : Nonce),
+  ∀ (zkp : UnknownZKP) (nonce₁ nonce₂ : Nonce),
     nonceIsBoundToZKP nonce₁ zkp →
     nonceIsBoundToZKP nonce₂ zkp →
     nonce₁ = nonce₂ := by
@@ -338,7 +338,7 @@ theorem nonce_binding_is_unique :
     - よって、異なるセッションでのZKP再利用は不可能
 -/
 theorem mutual_defense_property :
-  ∀ (zkp : ZeroKnowledgeProof) (pair₁ pair₂ : NoncePair),
+  ∀ (zkp : UnknownZKP) (pair₁ pair₂ : NoncePair),
     noncePairIsBoundToZKP pair₁ zkp →
     -- もし、どちらか一方のnonceが異なれば
     (pair₁.holderNonce ≠ pair₂.holderNonce ∨ pair₁.verifierNonce ≠ pair₂.verifierNonce) →
@@ -362,7 +362,7 @@ theorem mutual_defense_property :
         Verifier（検証アプリ）にバグがあってもドライバーは守られる。
 -/
 theorem holder_self_defense :
-  ∀ (zkp : ZeroKnowledgeProof) (pair₁ pair₂ : NoncePair),
+  ∀ (zkp : UnknownZKP) (pair₁ pair₂ : NoncePair),
     noncePairIsBoundToZKP pair₁ zkp →
     -- Holderが異なるnonce1を生成（Verifierは同じnonce2かもしれない）
     pair₁.holderNonce ≠ pair₂.holderNonce →
@@ -382,7 +382,7 @@ theorem holder_self_defense :
         Holder（顧客）のウォレットにバグがあっても銀行は守られる。
 -/
 theorem verifier_self_defense :
-  ∀ (zkp : ZeroKnowledgeProof) (pair₁ pair₂ : NoncePair),
+  ∀ (zkp : UnknownZKP) (pair₁ pair₂ : NoncePair),
     noncePairIsBoundToZKP pair₁ zkp →
     -- Verifierが異なるnonce2を生成（Holderは同じnonce1かもしれない）
     pair₁.verifierNonce ≠ pair₂.verifierNonce →
@@ -491,7 +491,7 @@ theorem replay_attack_resistance_conditional :
     **設計への教訓**: Verifierは各セッションで一意な新しいnonceを生成しなければならない。
 -/
 theorem nonce_reuse_enables_replay_attack :
-  ∀ (zkp : ZeroKnowledgeProof) (session₁ session₂ : VerificationSession)
+  ∀ (zkp : UnknownZKP) (session₁ session₂ : VerificationSession)
     (history : NonceHistory),
     -- 異なるセッションだが同じnonceを使用（設計ミス！）
     session₁ ≠ session₂ →
@@ -576,7 +576,7 @@ theorem attacker_cannot_reuse_zkp_if_unique_nonce :
     「安全な実装を選ぶのはユーザー/実装者の責任」という原則に基づく。
 -/
 theorem zkp_is_single_use_if_unique_nonce :
-  ∀ (zkp : ZeroKnowledgeProof) (session₁ session₂ : VerificationSession)
+  ∀ (zkp : UnknownZKP) (session₁ session₂ : VerificationSession)
     (history : NonceHistory),
     -- 前提: 異なるセッションは異なるnonceを持つ
     session₁.nonce ≠ session₂.nonce →

@@ -19,9 +19,9 @@ import AMATELUS.Audit
 
 /-- プロトコル状態を表す構造体 -/
 structure ProtocolState where
-  dids : List DID
-  vcs : List VerifiableCredential
-  zkps : List ZeroKnowledgeProof
+  dids : List UnknownDID
+  vcs : List UnknownVC
+  zkps : List UnknownZKP
   ahis : List AnonymousHashIdentifier
   -- trustGraph は信頼関係のグラフ（簡略化のため省略）
 
@@ -30,7 +30,7 @@ structure ProtocolState where
 /-- プロトコルの完全性 -/
 def Integrity (state : ProtocolState) : Prop :=
   -- すべてのVCが有効
-  ∀ vc ∈ state.vcs, VerifiableCredential.isValid vc
+  ∀ vc ∈ state.vcs, UnknownVC.isValid vc
 
 /-- プロトコルのプライバシー（暗号強度依存）
 
@@ -71,9 +71,9 @@ def SecurityInvariant (state : ProtocolState) : Prop :=
 
 /-- 状態遷移の種類 -/
 inductive StateTransition
-  | DIDGeneration : DIDDocument → StateTransition
-  | VCIssuance : VerifiableCredential → StateTransition
-  | ZKPGeneration : ZeroKnowledgeProof → StateTransition
+  | DIDGeneration : UnknownDIDDocument → StateTransition
+  | VCIssuance : UnknownVC → StateTransition
+  | ZKPGeneration : UnknownZKP → StateTransition
   | AuditExecution : AnonymousHashIdentifier → StateTransition
 
 /-- 有効な状態遷移の性質を定義
@@ -93,7 +93,7 @@ def ValidTransition (s₁ s₂ : ProtocolState) (t : StateTransition) : Prop :=
       -- かつ、追加されるVCは暗号学的に有効（署名が正当）
       -- s₂のVCは、s₁のVCまたは新しく追加されるvcのいずれか
       s₂.dids = s₁.dids ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis ∧
-      VerifiableCredential.isValid vc ∧
+      UnknownVC.isValid vc ∧
       (∀ vc' ∈ s₂.vcs, vc' ∈ s₁.vcs ∨ vc' = vc) ∧
       (∀ vc' ∈ s₁.vcs, vc' ∈ s₂.vcs)
   | StateTransition.ZKPGeneration zkp =>
@@ -101,7 +101,7 @@ def ValidTransition (s₁ s₂ : ProtocolState) (t : StateTransition) : Prop :=
       -- かつ、追加されるZKPは暗号学的に有効（零知識性を満たす）
       s₂.dids = s₁.dids ∧ s₂.vcs = s₁.vcs ∧ s₂.ahis = s₁.ahis ∧
       -- ZKPが有効（ある関係式に対して検証に成功する）
-      (∃ (relation : Relation), ZeroKnowledgeProof.isValid zkp relation)
+      (∃ (relation : Relation), UnknownZKP.isValid zkp relation)
   | StateTransition.AuditExecution ahi =>
       -- 監査実行: 新しいAHIが追加される可能性があるが、DIDs、VCs、ZKPsは変更されない
       -- AHIはハッシュ関数で生成されるため、元のNationalIDを復元することは困難
@@ -129,7 +129,7 @@ def ValidTransition (s₁ s₂ : ProtocolState) (t : StateTransition) : Prop :=
     「衝突発見が暗号学的に困難」であることに依存しています。
 -/
 theorem did_generation_preserves_security :
-  ∀ (s₁ s₂ : ProtocolState) (doc : DIDDocument),
+  ∀ (s₁ s₂ : ProtocolState) (doc : UnknownDIDDocument),
     ValidTransition s₁ s₂ (StateTransition.DIDGeneration doc) →
     SecurityInvariant s₁ →
     SecurityInvariant s₂ := by
@@ -180,13 +180,13 @@ theorem did_generation_preserves_security :
     「署名偽造が暗号学的に困難」であることに依存しています。
 -/
 theorem vc_issuance_preserves_security :
-  ∀ (s₁ s₂ : ProtocolState) (vc : VerifiableCredential),
+  ∀ (s₁ s₂ : ProtocolState) (vc : UnknownVC),
     ValidTransition s₁ s₂ (StateTransition.VCIssuance vc) →
     SecurityInvariant s₁ →
     SecurityInvariant s₂ := by
   intro s₁ s₂ vc h_valid h_inv
   -- ValidTransitionからVC発行の性質を取得
-  -- s₂.dids = s₁.dids ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis ∧ VerifiableCredential.isValid vc
+  -- s₂.dids = s₁.dids ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis ∧ UnknownVC.isValid vc
   unfold ValidTransition at h_valid
   -- SecurityInvariantは Integrity ∧ Privacy ∧ Auditability
   unfold SecurityInvariant at h_inv ⊢
@@ -238,7 +238,7 @@ theorem vc_issuance_preserves_security :
     「証明の識別が暗号学的に困難」であることに依存しています。
 -/
 theorem zkp_generation_preserves_security :
-  ∀ (s₁ s₂ : ProtocolState) (zkp : ZeroKnowledgeProof),
+  ∀ (s₁ s₂ : ProtocolState) (zkp : UnknownZKP),
     ValidTransition s₁ s₂ (StateTransition.ZKPGeneration zkp) →
     SecurityInvariant s₁ →
     SecurityInvariant s₂ := by
@@ -451,7 +451,7 @@ theorem realtime_characteristics :
 -/
 theorem availability_attack_resistance :
   -- Theorem 3.2により、DID解決が外部サービスに依存しない
-  ∀ (did : DID) (vdoc : ValidDIDDocument),
+  ∀ (did : UnknownDID) (vdoc : ValidDIDDocument),
     did_resolution_is_independent did vdoc →
     True := by
   intro _did _vdoc _h_indep
@@ -464,7 +464,7 @@ theorem overall_protocol_safety :
   ∀ (state : ProtocolState),
     SecurityInvariant state →
     -- 暗号学的完全性（Theorem 3.1-3.5）
-    (∀ vc ∈ state.vcs, VerifiableCredential.isValid vc) ∧
+    (∀ vc ∈ state.vcs, UnknownVC.isValid vc) ∧
     -- 信頼伝播の正当性（Theorem 4.2, 4.4）
     True ∧
     -- プライバシー保護の完全性（Theorem 5.1, 5.3）

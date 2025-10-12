@@ -54,13 +54,13 @@ theorem one_level_trust_chain_security :
     - チェーン探索不要（Option型のパターンマッチのみ）
     - O(1)の検証複雑度
 -/
-def getVCDepth (vc : VerifiableCredential) : Nat :=
+def getVCDepth (vc : UnknownVC) : Nat :=
   match vc with
-  | VerifiableCredential.valid vvc =>
+  | UnknownVC.valid vvc =>
       match VCTypeCore.getDelegator vvc.vcType with
       | none => 0  -- トラストアンカー直接発行
       | some _ => 1  -- 委任者経由発行
-  | VerifiableCredential.invalid _ => 0  -- 不正なVCは階層0とみなす
+  | UnknownVC.invalid _ => 0  -- 不正なVCは階層0とみなす
 
 /-- Theorem: すべてのVCの階層深度は1以下（型システムで保証）
 
@@ -68,7 +68,7 @@ def getVCDepth (vc : VerifiableCredential) : Nat :=
     2階層以上のVCは型システムで構築不可能。
 -/
 theorem vc_depth_at_most_one :
-  ∀ (vc : VerifiableCredential),
+  ∀ (vc : UnknownVC),
     getVCDepth vc ≤ 1 := by
   intro vc
   unfold getVCDepth
@@ -89,9 +89,9 @@ theorem vc_depth_at_most_one :
     - 2階層以上は構造的に不可能（delegatorはOption型）
     - チェーン探索不要（Option型のパターンマッチのみ）
 -/
-def isDirectTrustVC (vc : VerifiableCredential) (wallet : Wallet) : Prop :=
+def isDirectTrustVC (vc : UnknownVC) (wallet : Wallet) : Prop :=
   match vc with
-  | VerifiableCredential.valid vvc =>
+  | UnknownVC.valid vvc =>
       match VCTypeCore.getDelegator vvc.vcType with
       | none =>
           -- 0階層: トラストアンカー直接発行
@@ -105,7 +105,7 @@ def isDirectTrustVC (vc : VerifiableCredential) (wallet : Wallet) : Prop :=
           match TrustAnchorDict.lookup wallet.trustedAnchors anchorDID with
           | none => False  -- トラストアンカーが信頼されていない
           | some info => issuerDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
-  | VerifiableCredential.invalid _ => False  -- 不正なVCは信頼されない
+  | UnknownVC.invalid _ => False  -- 不正なVCは信頼されない
 
 -- ## 直接信頼関係の定義
 
@@ -119,11 +119,11 @@ def isDirectTrustVC (vc : VerifiableCredential) (wallet : Wallet) : Prop :=
     - VCは暗号学的に有効
     - これ以上の委譲は許可されない
 -/
-def DirectTrust (anchor : DID) (trustee : DID) : Prop :=
-  ∃ (vc : VerifiableCredential),
-    VerifiableCredential.getIssuer vc = anchor ∧
-    VerifiableCredential.getSubject vc = trustee ∧
-    VerifiableCredential.isValid vc
+def DirectTrust (anchor : UnknownDID) (trustee : UnknownDID) : Prop :=
+  ∃ (vc : UnknownVC),
+    UnknownVC.getIssuer vc = anchor ∧
+    UnknownVC.getSubject vc = trustee ∧
+    UnknownVC.isValid vc
     -- 注: anchorがトラストアンカーであることは、VC検証時に確認される
 
 /-- VCから直接信頼関係を構築
@@ -132,10 +132,10 @@ def DirectTrust (anchor : DID) (trustee : DID) : Prop :=
     これは定義から直接導かれる。
 -/
 theorem vc_establishes_direct_trust :
-  ∀ (vc : VerifiableCredential) (anchor trustee : DID),
-    VerifiableCredential.getIssuer vc = anchor →
-    VerifiableCredential.getSubject vc = trustee →
-    VerifiableCredential.isValid vc →
+  ∀ (vc : UnknownVC) (anchor trustee : UnknownDID),
+    UnknownVC.getIssuer vc = anchor →
+    UnknownVC.getSubject vc = trustee →
+    UnknownVC.isValid vc →
     DirectTrust anchor trustee := by
   intro vc anchor trustee h_issuer h_subject h_valid
   unfold DirectTrust
@@ -152,7 +152,7 @@ theorem vc_establishes_direct_trust :
     - チェーン探索不要
 -/
 theorem type_system_guarantees_one_level :
-  ∀ (vc : VerifiableCredential),
+  ∀ (vc : UnknownVC),
     getVCDepth vc = 0 ∨ getVCDepth vc = 1 := by
   intro vc
   unfold getVCDepth
@@ -176,9 +176,9 @@ theorem type_system_guarantees_one_level :
     AMATELUSの安全性保証は型システムで保証された1階層VCのみに適用される。
 -/
 theorem amatelus_verifies_only_direct_trust :
-  ∀ (wallet : Wallet) (vc : VerifiableCredential),
+  ∀ (wallet : Wallet) (vc : UnknownVC),
     -- VCが暗号学的に有効であり
-    VerifiableCredential.isValid vc →
+    UnknownVC.isValid vc →
     -- AMATELUSプロトコルが受け入れる場合
     -- VCは直接信頼関係（0階層または1階層）を持つ
     isDirectTrustVC vc wallet →
@@ -197,7 +197,7 @@ theorem amatelus_verifies_only_direct_trust :
     このような定理の証明は不要（型で保証される）。
 -/
 theorem two_level_vc_impossible :
-  ∀ (vc : VerifiableCredential),
+  ∀ (vc : UnknownVC),
     getVCDepth vc ≠ 2 := by
   intro vc
   have h := vc_depth_at_most_one vc
@@ -220,7 +220,7 @@ theorem two_level_vc_impossible :
     従って、「推移的信頼を拒否する」証明は不要。
 -/
 theorem transitive_trust_impossible :
-  ∀ (vc : VerifiableCredential),
+  ∀ (vc : UnknownVC),
     -- すべてのVCの階層深度は1以下
     getVCDepth vc ≤ 1 := by
   intro vc
@@ -269,7 +269,7 @@ def RootAuthorityCertificate.isValidCert
     **相対性理論的設計:**
     検証者のウォレット時刻で証明書の有効期限を判定。
 -/
-def isTrustAnchor (issuer : Issuer) (did : DID) (verifierWallet : Wallet) : Prop :=
+def isTrustAnchor (issuer : Issuer) (did : UnknownDID) (verifierWallet : Wallet) : Prop :=
   match issuer with
   | Issuer.trustAnchor ta =>
       -- WalletにDIDが含まれていることを確認
@@ -314,10 +314,10 @@ def isAuthorizedForClaim (issuer : Issuer) (claimID : ClaimID) (verifierWallet :
       -- 受託者の場合: claimIDがauthorizedClaimIDsに含まれる
       claimID ∈ t.authorizedClaimIDs ∧
       -- かつ、TrusteeVCが有効である
-      VerifiableCredential.isValid t.issuerCredential ∧
+      UnknownVC.isValid t.issuerCredential ∧
       -- かつ、TrusteeVCのissuerがトラストアンカーである
       (∃ anchorDID,
-        VerifiableCredential.getIssuer t.issuerCredential = anchorDID ∧
+        UnknownVC.getIssuer t.issuerCredential = anchorDID ∧
         (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
 
 /-- 発行者がクレームを発行する権限を持つかを判定（Claims引数版）
@@ -382,9 +382,9 @@ theorem trustee_direct_authorized :
     (match issuer with
      | Issuer.trustee t =>
          claimID ∈ t.authorizedClaimIDs ∧
-         VerifiableCredential.isValid t.issuerCredential ∧
+         UnknownVC.isValid t.issuerCredential ∧
          (∃ anchorDID,
-           VerifiableCredential.getIssuer t.issuerCredential = anchorDID ∧
+           UnknownVC.getIssuer t.issuerCredential = anchorDID ∧
            (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorDID).isSome)
      | Issuer.trustAnchor _ => False) →
     isAuthorizedForClaim issuer claimID verifierWallet := by

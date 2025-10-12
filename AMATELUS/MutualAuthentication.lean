@@ -37,7 +37,7 @@ import AMATELUS.Operations
 -/
 structure VerifierClaim where
   claimData : Claims           -- クレームの内容
-  issuerDID : DID              -- このクレームを署名した発行者のDID
+  issuerDID : UnknownDID              -- このクレームを署名した発行者のDID
   deriving Repr, DecidableEq
 
 /-- Verifierの初期メッセージ
@@ -47,7 +47,7 @@ structure VerifierClaim where
 structure VerifierInitialMessage where
   nonce2 : Nonce                          -- Verifierが生成したナンス
   presentedClaims : List VerifierClaim    -- 提示するクレーム情報のリスト
-  verifierDID : DID                       -- Verifierの識別子
+  verifierDID : UnknownDID                       -- Verifierの識別子
   timestamp : Timestamp
   deriving Repr
 
@@ -57,7 +57,7 @@ structure VerifierInitialMessage where
 -/
 structure HolderResponse where
   nonce1 : Nonce                -- Holderが生成したナンス
-  holderZKP : ZeroKnowledgeProof  -- ナンス1とナンス2を結合したZKP
+  holderZKP : UnknownZKP  -- ナンス1とナンス2を結合したZKP
   timestamp : Timestamp
 
 -- ## トラストアンカー検証ロジック
@@ -142,7 +142,7 @@ noncomputable def holderRespond
       claimedAttributes := "Identity verification"
     }
 
-    let zkp := ZeroKnowledgeProof.valid {
+    let zkp := UnknownZKP.valid {
       zkpType := Sum.inr holderZKPCore
     }
 
@@ -223,14 +223,14 @@ theorem generated_zkp_is_valid :
     -- 応答が生成された場合
     holderRespond msg holderWallet holderIdentity true h_has_identity = some response →
     -- ZKPは有効である
-    ∃ (relation : Relation), ZeroKnowledgeProof.isValid response.holderZKP relation := by
+    ∃ (relation : Relation), UnknownZKP.isValid response.holderZKP relation := by
   intro msg holderWallet holderIdentity h_has_identity response h_response
   -- holderRespondの定義を展開すると、responseのholderZKPはZeroKnowledgeProof.validとして構築される
   -- したがって、任意のrelationに対してisValidが成立
   refine ⟨(fun _ _ => true), ?_⟩
   -- holderRespondの定義により、holderZKPはZeroKnowledgeProof.validとして構築されている
   -- ZeroKnowledgeProof.validはZeroKnowledgeProof.verifyでtrueを返す
-  unfold ZeroKnowledgeProof.isValid ZeroKnowledgeProof.verify
+  unfold UnknownZKP.isValid UnknownZKP.verify
   -- holderRespondの定義から、responseのholderZKPはvalidコンストラクタで構築されている
   -- ので、verify (valid _) _ = trueが成立
   unfold holderRespond at h_response

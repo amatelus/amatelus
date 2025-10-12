@@ -110,14 +110,14 @@ end AnonymousHashIdentifier
     - issuer: W3C.Issuer.uri "did:amt:123..." → Some (DID.valid ...)
     - issuer: W3C.Issuer.uri "https://example.com" → None（URLはDIDではない）
 -/
-def getIssuerDID (issuer : W3C.Issuer) : Option DID :=
+def getIssuerDID (issuer : W3C.Issuer) : Option UnknownDID :=
   let idString := issuer.getId
   -- DID形式かチェック（"did:"で始まる）
   if idString.startsWith "did:" then
     -- W3C.DIDとして構築
     let w3cDID : W3C.DID := { value := idString }
     -- AMATELUS DIDとして返す
-    some (DID.valid w3cDID)
+    some (UnknownDID.valid w3cDID)
   else
     none
 
@@ -132,10 +132,10 @@ def getIssuerDID (issuer : W3C.Issuer) : Option DID :=
     **使用例:**
     - did: DID.valid { value := "did:amt:123..." } → Issuer.uri "did:amt:123..."
 -/
-def didToW3CIssuer (did : DID) : W3C.Issuer :=
+def didToW3CIssuer (did : UnknownDID) : W3C.Issuer :=
   match did with
-  | DID.valid w3cDID => W3C.Issuer.uri w3cDID.value
-  | DID.invalid w3cDID _ => W3C.Issuer.uri w3cDID.value
+  | UnknownDID.valid w3cDID => W3C.Issuer.uri w3cDID.value
+  | UnknownDID.invalid w3cDID _ => W3C.Issuer.uri w3cDID.value
 
 -- ## Helper Functions for W3C CredentialSubject
 
@@ -152,7 +152,7 @@ def didToW3CIssuer (did : DID) : W3C.Issuer :=
     - credentialSubject.id = Some "https://example.com" → None（URLはDIDではない）
     - credentialSubject.id = None → None
 -/
-def getSubjectDID (subjects : List W3C.CredentialSubject) : Option DID :=
+def getSubjectDID (subjects : List W3C.CredentialSubject) : Option UnknownDID :=
   match subjects.head? with
   | none => none
   | some subject =>
@@ -164,7 +164,7 @@ def getSubjectDID (subjects : List W3C.CredentialSubject) : Option DID :=
             -- W3C.DIDとして構築
             let w3cDID : W3C.DID := { value := idString }
             -- AMATELUS DIDとして返す
-            some (DID.valid w3cDID)
+            some (UnknownDID.valid w3cDID)
           else
             none
 
@@ -183,10 +183,10 @@ def getSubjectDID (subjects : List W3C.CredentialSubject) : Option DID :=
     AMATELUSでは、claimsは各VC typeに分散して保存されます（AttributeVC.claims等）。
     W3C.CredentialSubject.claimsはAMATELUSでは使用しません。
 -/
-def didToCredentialSubject (did : DID) : W3C.CredentialSubject :=
+def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
   match did with
-  | DID.valid w3cDID => { id := some w3cDID.value, claims := [] }
-  | DID.invalid w3cDID _ => { id := some w3cDID.value, claims := [] }
+  | UnknownDID.valid w3cDID => { id := some w3cDID.value, claims := [] }
+  | UnknownDID.invalid w3cDID _ => { id := some w3cDID.value, claims := [] }
 
 -- ## Helper Functions for Context and VCType conversion
 
@@ -253,7 +253,7 @@ structure AMATELUSCredential where
   -- W3C標準Credentialのコア構造
   w3cCredential : W3C.Credential
   -- AMATELUS固有フィールド
-  delegator : Option DID  -- None = トラストアンカー直接発行、Some did = 委任者経由発行
+  delegator : Option UnknownDID  -- None = トラストアンカー直接発行、Some did = 委任者経由発行
   deriving Repr
 
 /-- 受託者認証VC
@@ -403,21 +403,21 @@ def getCore : VCTypeCore → W3CCredentialCore
 /-- VCTypeの発行者をDIDとして取得
 
     **注意:** この関数は内部実装用です。
-    通常はVerifiableCredential.getIssuerを使用してください（型安全）。
+    通常はUnknownVC.getIssuerを使用してください（型安全）。
 -/
-def getIssuer (vc : VCTypeCore) : Option DID :=
+def getIssuer (vc : VCTypeCore) : Option UnknownDID :=
   getIssuerDID (getCore vc).issuer
 
 /-- VCTypeの主体をDIDとして取得
 
     **注意:** この関数は内部実装用です。
-    通常はVerifiableCredential.getSubjectを使用してください（型安全）。
+    通常はUnknownVC.getSubjectを使用してください（型安全）。
 -/
-def getSubject (vc : VCTypeCore) : Option DID :=
+def getSubject (vc : VCTypeCore) : Option UnknownDID :=
   getSubjectDID (getCore vc).credentialSubject
 
 /-- VCTypeの委任者を取得（1階層制限の検証に使用） -/
-def getDelegator (vc : VCTypeCore) : Option DID :=
+def getDelegator (vc : VCTypeCore) : Option UnknownDID :=
   (getAMATELUSCore vc).delegator
 
 end VCTypeCore
@@ -454,9 +454,9 @@ structure ValidVC where
   -- VCの種類
   vcType : VCTypeCore
   -- 発行者DID（型レベルで保証）
-  issuerDID : DID
+  issuerDID : UnknownDID
   -- 主体DID（型レベルで保証）
-  subjectDID : DID
+  subjectDID : UnknownDID
   -- デジタル署名（型レベルで保証）
   signature : Signature
   -- 不変条件: getIssuerDID (getCore vcType).issuer = some issuerDID
@@ -484,12 +484,17 @@ structure InvalidVC where
   -- 不正な理由（デバッグ用、プロトコルには不要）
   reason : String
 
-/-- 検証可能資格情報 (Verifiable Credential)
+/-- 未検証の資格情報 (Unknown Verifiable Credential)
 
-    正規のVCと不正なVCの和型。
+    構造的に正しくパースされたVCで、署名検証の結果を表す和型。
     AMATELUSプロトコルで扱われるVCは、暗号学的に以下のいずれか：
     - valid: 正規に発行されたVC（署名検証が成功）
     - invalid: 不正なVC（署名検証が失敗）
+
+    **命名の意図:**
+    - 「UnknownVC」= 構造的にパース成功したが、署名検証の状態は未確定または既知
+    - 「VerifiableCredential」から改名し、W3C標準との対応を明確化
+    - W3C.Credential（proof前）とは異なり、署名検証の結果を含む
 
     **設計の利点:**
     - VC検証の暗号的詳細（Ed25519署名検証など）を抽象化
@@ -500,14 +505,14 @@ structure InvalidVC where
     - ZeroKnowledgeProofと同じパターン（Valid/Invalid + 和型）
     - 統一された形式検証アプローチ
 -/
-inductive VerifiableCredential
-  | valid : ValidVC → VerifiableCredential
-  | invalid : InvalidVC → VerifiableCredential
+inductive UnknownVC
+  | valid : ValidVC → UnknownVC
+  | invalid : InvalidVC → UnknownVC
 
-namespace VerifiableCredential
+namespace UnknownVC
 
 /-- VCから基本構造を取得 -/
-def getCore : VerifiableCredential → W3CCredentialCore :=
+def getCore : UnknownVC → W3CCredentialCore :=
   fun vc => match vc with
   | valid vvc => VCTypeCore.getCore vvc.vcType
   | invalid ivc => VCTypeCore.getCore ivc.vcType
@@ -518,14 +523,14 @@ def getCore : VerifiableCredential → W3CCredentialCore :=
     - ValidVC: 型レベルで保証されたDIDを直接返す（Option不要）
     - InvalidVC: W3C.IssuerからDIDを抽出（DID形式でない場合はNone）
 -/
-def getIssuer (vc : VerifiableCredential) : DID :=
+def getIssuer (vc : UnknownVC) : UnknownDID :=
   match vc with
   | valid vvc => vvc.issuerDID  -- ValidVCは型レベルでDIDを保証
   | invalid _ =>
       -- InvalidVCの場合、issuerがDID形式でなければダミーDIDを返す
       match getIssuerDID (getCore vc).issuer with
       | some did => did
-      | none => DID.invalid { value := "invalid:unknown" } "Non-DID issuer in InvalidVC"
+      | none => UnknownDID.invalid { value := "invalid:unknown" } "Non-DID issuer in InvalidVC"
 
 /-- VCの主体をDIDとして取得
 
@@ -533,14 +538,14 @@ def getIssuer (vc : VerifiableCredential) : DID :=
     - ValidVC: 型レベルで保証されたDIDを直接返す（Option不要）
     - InvalidVC: W3C.CredentialSubjectからDIDを抽出（DID形式でない場合はダミーDID）
 -/
-def getSubject (vc : VerifiableCredential) : DID :=
+def getSubject (vc : UnknownVC) : UnknownDID :=
   match vc with
   | valid vvc => vvc.subjectDID  -- ValidVCは型レベルでDIDを保証
   | invalid _ =>
       -- InvalidVCの場合、subjectがDID形式でなければダミーDIDを返す
       match getSubjectDID (getCore vc).credentialSubject with
       | some did => did
-      | none => DID.invalid { value := "invalid:unknown" } "Non-DID subject in InvalidVC"
+      | none => UnknownDID.invalid { value := "invalid:unknown" } "Non-DID subject in InvalidVC"
 
 /-- VC検証関数（定義として実装）
 
@@ -556,12 +561,12 @@ def getSubject (vc : VerifiableCredential) : DID :=
     - `verifySignature (invalid _) = false`により、検証は失敗する
     - したがって、Issuerバグは当該VCのみに影響
 -/
-def verifySignature : VerifiableCredential → Bool
+def verifySignature : UnknownVC → Bool
   | valid _ => true   -- 正規のVCは常に検証成功
   | invalid _ => false -- 不正なVCは常に検証失敗
 
 /-- VCが有効かどうかを表す述語 -/
-def isValid (vc : VerifiableCredential) : Prop :=
+def isValid (vc : UnknownVC) : Prop :=
   verifySignature vc = true
 
 /-- Theorem: 正規のVCは常に検証成功
@@ -588,4 +593,4 @@ theorem invalid_vc_fails :
   unfold isValid verifySignature
   simp
 
-end VerifiableCredential
+end UnknownVC

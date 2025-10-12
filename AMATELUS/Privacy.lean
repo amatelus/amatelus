@@ -27,9 +27,9 @@ structure Service where
     - presentedDIDは別チャネル（DID提示）で送信されることを想定
 -/
 structure ZKPPresentationEvent where
-  presentedDID : DID                -- 別チャネルで送信されたDID（ZKPとは独立）
+  presentedDID : UnknownDID                -- 別チャネルで送信されたDID（ZKPとは独立）
   service : Service                 -- 提示先のサービス
-  zkp : ZeroKnowledgeProof         -- 提示されたZKP（DIDは含まない）
+  zkp : UnknownZKP         -- 提示されたZKP（DIDは含まない）
   timestamp : Timestamp             -- 提示時刻
 
 /-- プロトコル実行履歴（トレース）
@@ -80,7 +80,7 @@ def ProtocolTrace := List ZKPPresentationEvent
     実際の実装では、ZKP提示の記録やセッション履歴から、
     特定のDIDが特定のサービスで使用されたことを検証可能です。
 -/
-def UsedIn (did : DID) (service : Service) (trace : ProtocolTrace) : Prop :=
+def UsedIn (did : UnknownDID) (service : Service) (trace : ProtocolTrace) : Prop :=
   -- traceの中に、didを含むZKPがserviceに提示されたイベントが存在する
   ∃ (event : ZKPPresentationEvent),
     List.Mem event trace ∧
@@ -97,7 +97,7 @@ def UsedIn (did : DID) (service : Service) (trace : ProtocolTrace) : Prop :=
     **注意:** この関数は簡略化されたモデルであり、実際の安全性保証は
     `anti_linkability`定理と`didLinkabilitySecurity`で定義される暗号強度に基づく。
 -/
-def Link (_did₁ _did₂ : DID) (_A : PPTAlgorithm) : Bool :=
+def Link (_did₁ _did₂ : UnknownDID) (_A : PPTAlgorithm) : Bool :=
   -- 攻撃者Aがdid₁とdid₂が同一人物のものであることを発見できる
   false  -- 簡略化: 実際には確率的（最大 2^{-128}）
 
@@ -179,7 +179,7 @@ theorem cryptographic_linkability_quantum_secure :
     名寄せは不可能である。これは暗号学における標準的な安全性の定義である。
 -/
 theorem anti_linkability :
-  ∀ (did₁ did₂ : DID) (service₁ service₂ : Service) (trace : ProtocolTrace),
+  ∀ (did₁ did₂ : UnknownDID) (service₁ service₂ : Service) (trace : ProtocolTrace),
     service₁ ≠ service₂ →
     UsedIn did₁ service₁ trace →
     UsedIn did₂ service₂ trace →
@@ -271,7 +271,7 @@ theorem zero_knowledge_property_quantum_secure :
     量子計算機でも128ビットの計算量が必要である。
 -/
 theorem zkp_no_information_leakage :
-  ∀ (_zkp : ZeroKnowledgeProof) (_w : Witness),
+  ∀ (_zkp : UnknownZKP) (_w : Witness),
     -- 秘密情報の抽出には暗号的計算コストが必要（量子計算機でも128ビット）
     amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   intro _ _
@@ -298,7 +298,7 @@ theorem zkp_no_information_leakage :
     これらの保証は、具体的な攻撃成功確率（最大 2^{-128}）に基づいており、
     暗号強度に依存した確率的保証である。
 -/
-def ComprehensivePrivacy (did₁ did₂ : DID) (service₁ service₂ : Service)
+def ComprehensivePrivacy (did₁ did₂ : UnknownDID) (service₁ service₂ : Service)
     (trace : ProtocolTrace) : Prop :=
   -- DID間の名寄せには暗号的計算コストが必要（traceから名寄せ）
   (service₁ ≠ service₂ →
@@ -479,7 +479,7 @@ theorem size_fixed_insufficient_for_timing_resistance :
     量子計算機でも128ビットの計算量が必要である。
 -/
 theorem statistical_attack_resistance :
-  ∀ (_zkp : ZeroKnowledgeProof),
+  ∀ (_zkp : UnknownZKP),
     -- 統計的攻撃には暗号的計算コストが必要（量子計算機でも128ビット）
     amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   intro _

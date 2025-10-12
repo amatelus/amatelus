@@ -56,56 +56,61 @@ structure ValidDIDDocument where
     - 改ざんされたDIDDocument
     - 信頼できないソースから取得
 -/
-structure InvalidDIDDocument where
+structure InValidDIDDocument where
   w3cDoc : W3C.DIDDocument
   reason : String
   deriving Repr
 
-/-- DIDDocument（和型）
+/-- 未検証のDIDDocument（和型）
 
-    Holderから提示されるDIDDocumentは、以下のいずれか：
+    構造的に正しくパースされたDIDDocumentで、所有権検証の結果を表す和型。
+    Holderから提示されるUnknownDIDDocumentは、以下のいずれか：
     - valid: 所有権検証済みのDIDDocument
     - invalid: 所有権未検証または検証失敗のDIDDocument
 
+    **命名の意図:**
+    - 「UnknownDIDDocument」= 構造的にパース成功したが、所有権検証の状態は未確定または既知
+    - W3C.DIDDocument（検証前）とは異なり、検証結果を含む
+
     **AMATELUSでの使用:**
-    - HolderはDIDDocument（和型）をIssuerに提示
+    - HolderはUnknownDIDDocument（和型）をIssuerに提示
     - Issuerはチャレンジで検証し、成功ならValidDIDDocumentを獲得
     - ValidDIDDocumentからValidDIDを構築可能
 -/
-inductive DIDDocument
-  | valid : ValidDIDDocument → DIDDocument
-  | invalid : InvalidDIDDocument → DIDDocument
+inductive UnknownDIDDocument
+  | valid : ValidDIDDocument → UnknownDIDDocument
+  | invalid : InValidDIDDocument → UnknownDIDDocument
 
-/-- DIDDocumentのBeqインスタンス（W3C DID識別子で比較） -/
-instance : BEq DIDDocument where
+/-- UnknownDIDDocumentのBeqインスタンス（W3C DID識別子で比較） -/
+instance : BEq UnknownDIDDocument where
   beq
-    | DIDDocument.valid v1, DIDDocument.valid v2 =>
+    | UnknownDIDDocument.valid v1, UnknownDIDDocument.valid v2 =>
         v1.w3cDoc.id == v2.w3cDoc.id
-    | DIDDocument.invalid i1, DIDDocument.invalid i2 =>
+    | UnknownDIDDocument.invalid i1, UnknownDIDDocument.invalid i2 =>
         i1.w3cDoc.id == i2.w3cDoc.id
     | _, _ => false
 
-/-- DIDDocumentのReprインスタンス -/
-instance : Repr DIDDocument where
+/-- UnknownDIDDocumentのReprインスタンス -/
+instance : Repr UnknownDIDDocument where
   reprPrec
-    | DIDDocument.valid v, _ => "DIDDocument.valid " ++ repr v
-    | DIDDocument.invalid i, _ =>
-        "DIDDocument.invalid { w3cDoc := " ++ repr i.w3cDoc ++
+    | UnknownDIDDocument.valid v, _ => "UnknownDIDDocument.valid " ++ repr v
+    | UnknownDIDDocument.invalid i, _ =>
+        "UnknownDIDDocument.invalid { w3cDoc := " ++ repr i.w3cDoc ++
         ", reason := \"" ++ i.reason ++ "\" }"
 
-namespace DIDDocument
+namespace UnknownDIDDocument
 
-/-- DIDDocumentからW3C.DIDDocumentを取得 -/
-def getW3CDoc : DIDDocument → W3C.DIDDocument
+/-- UnknownDIDDocumentからW3C.DIDDocumentを取得 -/
+def getW3CDoc : UnknownDIDDocument → W3C.DIDDocument
   | valid v => v.w3cDoc
   | invalid i => i.w3cDoc
 
-/-- DIDDocumentが有効かどうかを表す述語 -/
-def isValid : DIDDocument → Prop
+/-- UnknownDIDDocumentが有効かどうかを表す述語 -/
+def isValid : UnknownDIDDocument → Prop
   | valid _ => True
   | invalid _ => False
 
-end DIDDocument
+end UnknownDIDDocument
 
 /-- W3C.DIDからmethod-specific-idを抽出するヘルパー関数
 
@@ -117,7 +122,7 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
   | none => ""
   | some (_, id) => id
 
-/-- DID (Decentralized Identifier)
+/-- UnknownDID (Unknown Decentralized Identifier)
 
     正規のDIDと不正なDIDの和型。
     AMATELUSプロトコルで扱われるDIDは、以下のいずれか：
@@ -142,47 +147,47 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
     - ZeroKnowledgeProof、VerifiableCredential、DIDPairと同じパターン（Valid/Invalid + 和型）
     - 統一された形式検証アプローチ
 -/
-inductive DID
-  | valid : W3C.DID → DID
-  | invalid : W3C.DID → String → DID
+inductive UnknownDID
+  | valid : W3C.DID → UnknownDID
+  | invalid : W3C.DID → String → UnknownDID
 
 /-- DIDのBeqインスタンス -/
-instance : BEq DID where
+instance : BEq UnknownDID where
   beq
-    | DID.valid did1, DID.valid did2 => did1 == did2
-    | DID.invalid did1 _, DID.invalid did2 _ => did1 == did2
+    | UnknownDID.valid did1, UnknownDID.valid did2 => did1 == did2
+    | UnknownDID.invalid did1 _, UnknownDID.invalid did2 _ => did1 == did2
     | _, _ => false
 
 /-- DIDのReprインスタンス -/
-instance : Repr DID where
+instance : Repr UnknownDID where
   reprPrec
-    | DID.valid w3cDID, _ =>
+    | UnknownDID.valid w3cDID, _ =>
         "DID.valid " ++ repr w3cDID
-    | DID.invalid w3cDID reason, _ =>
+    | UnknownDID.invalid w3cDID reason, _ =>
         "DID.invalid { w3cDID := " ++ repr w3cDID ++
         ", reason := \"" ++ reason ++ "\" }"
 
 /-- DIDのDecidableEqインスタンス -/
-instance : DecidableEq DID := fun a b =>
+instance : DecidableEq UnknownDID := fun a b =>
   match a, b with
-  | DID.valid did1, DID.valid did2 =>
-      if h : did1 = did2 then isTrue (congrArg DID.valid h)
-      else isFalse (fun h_eq => h (DID.valid.inj h_eq))
-  | DID.invalid did1 reason1, DID.invalid did2 reason2 =>
+  | UnknownDID.valid did1, UnknownDID.valid did2 =>
+      if h : did1 = did2 then isTrue (congrArg UnknownDID.valid h)
+      else isFalse (fun h_eq => h (UnknownDID.valid.inj h_eq))
+  | UnknownDID.invalid did1 reason1, UnknownDID.invalid did2 reason2 =>
       if h : did1 = did2 ∧ reason1 = reason2 then
         isTrue (by cases h.1; cases h.2; rfl)
       else isFalse (fun h_eq => by
         cases h_eq
         exact h ⟨rfl, rfl⟩)
-  | DID.valid _, DID.invalid _ _ => isFalse (fun h => nomatch h)
-  | DID.invalid _ _, DID.valid _ => isFalse (fun h => nomatch h)
+  | UnknownDID.valid _, UnknownDID.invalid _ _ => isFalse (fun h => nomatch h)
+  | UnknownDID.invalid _ _, UnknownDID.valid _ => isFalse (fun h => nomatch h)
 
 /-- W3C ServiceEndpointをバイト列にシリアライズするヘルパー関数 -/
 def serializeW3CServiceEndpoint (se : W3C.ServiceEndpoint) : List UInt8 :=
   -- ServiceEndpoint IDをUTF8バイト列に変換
   se.id.toUTF8.data.toList
 
-/-- W3C DIDDocumentのserviceフィールド全体をシリアライズ -/
+/-- W3C UnknownDIDDocumentのserviceフィールド全体をシリアライズ -/
 def serializeW3CServices (services : List W3C.ServiceEndpoint) : List UInt8 :=
   services.foldl (fun acc se => acc ++ serializeW3CServiceEndpoint se) []
 
@@ -194,10 +199,10 @@ def serializeW3CServices (services : List W3C.ServiceEndpoint) : List UInt8 :=
     **設計:**
     - W3C DID仕様に完全準拠
     - did:amt仕様に従い、標準フィールドのみを使用
-    - 決定的: 同じDIDDocumentは常に同じバイト列を生成
-    - 単射性: シリアライズ形式により、異なるDIDDocumentは異なるバイト列を生成（高確率）
+    - 決定的: 同じUnknownDIDDocumentは常に同じバイト列を生成
+    - 単射性: シリアライズ形式により、異なるUnknownDIDDocumentは異なるバイト列を生成（高確率）
 -/
-def serializeDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
+def serializeUnknownDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
   -- W3C DID識別子
   doc.w3cDoc.id.value.toUTF8.data.toList ++
   -- W3C VerificationMethodsのシリアライズ（公開鍵を含む）
@@ -210,7 +215,7 @@ def serializeDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
 
 /-- ValidDIDDocumentからW3C.DIDを抽出する関数
 
-    この関数は、所有権検証済みのDIDDocumentからW3C.DID識別子を抽出します。
+    この関数は、所有権検証済みのUnknownDIDDocumentからW3C.DID識別子を抽出します。
 
     **AMATELUSでの使用:**
     - Issuer: チャレンジ検証後、ValidDIDDocumentからW3C.DIDを取得
@@ -218,7 +223,7 @@ def serializeDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
     - Verifier: トラストアンカーのValidDIDDocumentからW3C.DIDを取得
 
     **did:amt仕様との関係:**
-    - did:amt仕様では、DID生成時にDIDDocument全体をハッシュ化
+    - did:amt仕様では、DID生成時にUnknownDIDDocument全体をハッシュ化
     - ハッシュはmethod-specific-id部分に含まれる（例: did:amt:0V3R4T7K1Q2P3N4M5...）
     - したがって、W3C.DIDの`value`からmethod-specific-idを抽出すればハッシュが得られる
 
@@ -227,52 +232,52 @@ def serializeDIDDocument (doc : ValidDIDDocument) : List UInt8 :=
     - 出力: W3C.DID
     - 性質: 決定性（同じ入力には同じ出力）
 -/
-noncomputable def validDIDDocumentToDID (doc : ValidDIDDocument) : W3C.DID :=
+noncomputable def ValidDIDDocumentToDID (doc : ValidDIDDocument) : W3C.DID :=
   doc.w3cDoc.id
 
 -- ## ハッシュ関数
 
-namespace DID
+namespace UnknownDID
 
 /-- ValidDIDDocumentからW3C.DIDを取得
 
-    validDIDDocumentToDIDを使用して、所有権検証済みのDIDDocumentから
+    ValidDIDDocumentToDIDを使用して、所有権検証済みのUnknownDIDDocumentから
     W3C.DIDを取得します。
 
     **AMATELUSでの使用:**
     - Issuer: チャレンジ検証後にW3C.DIDを取得
-    - Verifier: トラストアンカーの公開DIDDocumentからW3C.DIDを取得
+    - Verifier: トラストアンカーの公開UnknownDIDDocumentからW3C.DIDを取得
 
     この定義により、以下が保証される：
     - **決定性**: 同じValidDIDDocumentからは常に同じW3C.DIDが取得される
     - **一意性**: did:amt仕様により、method-specific-idがハッシュなので一意性が保証される
 -/
 noncomputable def fromValidDocument (doc : ValidDIDDocument) : W3C.DID :=
-  validDIDDocumentToDID doc
+  ValidDIDDocumentToDID doc
 
-/-- DIDDocumentからDID（和型）を生成する
+/-- UnknownDIDDocumentからDID（和型）を生成する
 
     - ValidDIDDocument → valid DID（W3C DIDを含む）
-    - InvalidDIDDocument → invalid DID（W3C DIDを含む）
+    - InValidDIDDocument → invalid DID（W3C DIDを含む）
 
-    この関数により、DIDDocumentの正規性がDIDの正規性に反映されます。
+    この関数により、UnknownDIDDocumentの正規性がDIDの正規性に反映されます。
 -/
-noncomputable def fromDocument (doc : DIDDocument) : DID :=
+noncomputable def fromDocument (doc : UnknownDIDDocument) : UnknownDID :=
   match doc with
-  | DIDDocument.valid vdoc => DID.valid (fromValidDocument vdoc)
-  | DIDDocument.invalid idoc =>
-      DID.invalid idoc.w3cDoc.id ("Invalid DIDDocument: " ++ idoc.reason)
+  | UnknownDIDDocument.valid vdoc => UnknownDID.valid (fromValidDocument vdoc)
+  | UnknownDIDDocument.invalid idoc =>
+      UnknownDID.invalid idoc.w3cDoc.id ("Invalid UnknownDIDDocument: " ++ idoc.reason)
 
 /-- DIDからmethod-specific-id（ハッシュ）を取得
 
     did:amt仕様では、method-specific-idがハッシュそのものです。
 -/
-def getMethodSpecificId : DID → String
+def getMethodSpecificId : UnknownDID → String
   | valid w3cDID => extractMethodSpecificId w3cDID
   | invalid w3cDID _ => extractMethodSpecificId w3cDID
 
 /-- DIDがValidDIDDocumentから正しく生成されたかを検証 -/
-def isValid (did : DID) (doc : ValidDIDDocument) : Prop :=
+def isValid (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   match did with
   | valid w3cDID => w3cDID = fromValidDocument doc
   | invalid _ _ => False  -- 不正なDIDは常に無効
@@ -284,16 +289,16 @@ def isValid (did : DID) (doc : ValidDIDDocument) : Prop :=
     HolderがVerifierに提示するペアは、この述語を満たす必要がある。
     正規のペアは、DIDがValidDIDDocumentから正しく生成されたものである。
 -/
-def isCanonicalPair (did : DID) (doc : ValidDIDDocument) : Prop :=
+def isCanonicalPair (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   isValid did doc
 
 /-- 不正なDID-DIDドキュメントのペア
 
     以下のいずれかの場合、ペアは不正である：
     1. DIDとValidDIDDocumentが一致しない
-    2. InvalidDIDDocumentから生成されたDID
+    2. InValidDIDDocumentから生成されたDID
 -/
-def isInvalidPair (did : DID) (doc : ValidDIDDocument) : Prop :=
+def isInvalidPair (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   ¬isValid did doc
 
 /-- Theorem: 不正なペアは検証に失敗する
@@ -302,7 +307,7 @@ def isInvalidPair (did : DID) (doc : ValidDIDDocument) : Prop :=
     isValid did doc = Falseとなり、検証は失敗する。
 -/
 theorem invalid_pair_fails_validation :
-  ∀ (did : DID) (doc : ValidDIDDocument),
+  ∀ (did : UnknownDID) (doc : ValidDIDDocument),
     isInvalidPair did doc →
     ¬isValid did doc := by
   intro did doc h_invalid
@@ -315,7 +320,7 @@ theorem invalid_pair_fails_validation :
     これは定義から自明だが、明示的に定理として示す。
 -/
 theorem validation_ensures_canonical :
-  ∀ (did : DID) (doc : ValidDIDDocument),
+  ∀ (did : UnknownDID) (doc : ValidDIDDocument),
     isValid did doc →
     isCanonicalPair did doc := by
   intro did doc h_valid
@@ -331,7 +336,7 @@ theorem validation_ensures_canonical :
     受け入れられないことを保証する。
 -/
 theorem verifier_rejects_invalid_pair :
-  ∀ (did : DID) (doc : ValidDIDDocument),
+  ∀ (did : UnknownDID) (doc : ValidDIDDocument),
     ¬isValid did doc →
     -- Verifierの検証ロジック
     ∃ (verificationFailed : Bool),
@@ -340,4 +345,4 @@ theorem verifier_rejects_invalid_pair :
   -- 検証失敗を表すフラグを構成
   refine ⟨true, rfl⟩
 
-end DID
+end UnknownDID

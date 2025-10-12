@@ -48,7 +48,7 @@ structure ZKProofCore where
 -/
 structure VerifierAuthZKPCore where
   core : ZKProofCore
-  verifierDID : DID           -- 証明者（Verifier）のDID
+  verifierDID : UnknownDID           -- 証明者（Verifier）のDID
   challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
   credentialType : String     -- 証明対象のVC種類（"VerifierVC"など）
 
@@ -125,7 +125,7 @@ structure InvalidZKP where
   -- 不正な理由（デバッグ用、プロトコルには不要）
   reason : String
 
-/-- ゼロ知識証明 (Zero-Knowledge Proof)
+/-- 未検証のゼロ知識証明 (Unknown Zero-Knowledge Proof)
 
     正規のZKPと不正なZKPの和型。
     AMATELUSプロトコルで扱われるZKPは、暗号学的に以下のいずれか：
@@ -137,14 +137,14 @@ structure InvalidZKP where
     - プロトコルレベルでは「正規/不正」の区別のみが重要
     - Wallet実装のバグは`invalid`として表現され、プロトコルの安全性には影響しない
 -/
-inductive ZeroKnowledgeProof
-  | valid : ValidZKP → ZeroKnowledgeProof
-  | invalid : InvalidZKP → ZeroKnowledgeProof
+inductive UnknownZKP
+  | valid : ValidZKP → UnknownZKP
+  | invalid : InvalidZKP → UnknownZKP
 
-namespace ZeroKnowledgeProof
+namespace UnknownZKP
 
 /-- ZKPから基本構造を取得 -/
-def getCore : ZeroKnowledgeProof → ZKProofCore :=
+def getCore : UnknownZKP → ZKProofCore :=
   fun zkp => match zkp with
   | valid vzkp => match vzkp.zkpType with
     | .inl verifier => verifier.core
@@ -172,12 +172,12 @@ def getCore : ZeroKnowledgeProof → ZKProofCore :=
     - `verify (invalid _) _ = false`により、検証は失敗する
     - したがって、Walletバグは当該利用者のみに影響
 -/
-def verify : ZeroKnowledgeProof → Relation → Bool
+def verify : UnknownZKP → Relation → Bool
   | valid _, _ => true   -- 正規のZKPは常に検証成功
   | invalid _, _ => false -- 不正なZKPは常に検証失敗
 
 /-- ZKPが有効かどうかを表す述語 -/
-def isValid (zkp : ZeroKnowledgeProof) (relation : Relation) : Prop :=
+def isValid (zkp : UnknownZKP) (relation : Relation) : Prop :=
   verify zkp relation = true
 
 /-- Theorem: 正規のZKPは常に検証成功
@@ -204,7 +204,7 @@ theorem invalid_zkp_fails :
   unfold isValid verify
   simp
 
-end ZeroKnowledgeProof
+end UnknownZKP
 
 -- ## Definition 2.4: Computational Resource Constraints
 

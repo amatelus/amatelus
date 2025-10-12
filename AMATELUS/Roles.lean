@@ -17,8 +17,8 @@ import AMATELUS.ZKP
     各アイデンティティは、DID、DIDドキュメント、秘密鍵の組として表現される。
 -/
 structure Identity where
-  did : DID
-  didDocument : DIDDocument
+  did : UnknownDID
+  didDocument : UnknownDIDDocument
   secretKey : SecretKey
   deriving Repr
 
@@ -37,7 +37,7 @@ inductive AuthorityType
 /-- ルート認証局証明書 -/
 structure RootAuthorityCertificate where
   -- 証明書の所有者（ルート認証局のDID）
-  subject : DID
+  subject : UnknownDID
   -- 証明書の種類（政府機関、認定CA等）
   authorityType : AuthorityType
   -- 発行可能なクレームドメイン
@@ -56,7 +56,7 @@ structure RootAuthorityCertificate where
 -/
 structure TrustAnchorInfo where
   didDocument : ValidDIDDocument
-  trustees : List DID  -- このトラストアンカーから認証を受けた受託者のリスト
+  trustees : List UnknownDID  -- このトラストアンカーから認証を受けた受託者のリスト
   claimDefinitions : List ClaimDefinitionVC  -- トラストアンカーが定義したクレームのリスト
 
 namespace TrustAnchorInfo
@@ -65,14 +65,14 @@ namespace TrustAnchorInfo
 
     トラストアンカーのDIDとValidDIDDocumentが一致することを確認する。
 -/
-def isValid (anchorDID : DID) (info : TrustAnchorInfo) : Prop :=
-  DID.isValid anchorDID info.didDocument
+def isValid (anchorDID : UnknownDID) (info : TrustAnchorInfo) : Prop :=
+  UnknownDID.isValid anchorDID info.didDocument
 
 /-- Theorem: 正規のトラストアンカー情報はDID検証に成功する -/
 theorem valid_info_passes_did_verification :
-  ∀ (anchorDID : DID) (info : TrustAnchorInfo),
+  ∀ (anchorDID : UnknownDID) (info : TrustAnchorInfo),
     isValid anchorDID info →
-    DID.isValid anchorDID info.didDocument := by
+    UnknownDID.isValid anchorDID info.didDocument := by
   intro anchorDID info h
   unfold isValid at h
   exact h
@@ -85,23 +85,25 @@ end TrustAnchorInfo
 
     連想リストとして実装され、DIDをキーとしてTrustAnchorInfoを取得できる。
 -/
-abbrev TrustAnchorDict := List (DID × TrustAnchorInfo)
+abbrev TrustAnchorDict := List (UnknownDID × TrustAnchorInfo)
 
 namespace TrustAnchorDict
 
 /-- 辞書からトラストアンカー情報を検索 -/
-def lookup (dict : TrustAnchorDict) (anchorDID : DID) : Option TrustAnchorInfo :=
+def lookup (dict : TrustAnchorDict) (anchorDID : UnknownDID) : Option TrustAnchorInfo :=
   List.lookup anchorDID dict
 
 /-- 辞書にトラストアンカー情報を追加 -/
-def insert (dict : TrustAnchorDict) (anchorDID : DID) (info : TrustAnchorInfo) : TrustAnchorDict :=
+def insert (dict : TrustAnchorDict) (anchorDID : UnknownDID)
+    (info : TrustAnchorInfo) : TrustAnchorDict :=
   (anchorDID, info) :: List.filter (fun (did, _) => did ≠ anchorDID) dict
 
 /-- 辞書から受託者を追加
 
     指定されたトラストアンカーの受託者リストに新しい受託者を追加する。
 -/
-def addTrustee (dict : TrustAnchorDict) (anchorDID : DID) (trusteeDID : DID) : TrustAnchorDict :=
+def addTrustee (dict : TrustAnchorDict) (anchorDID : UnknownDID)
+    (trusteeDID : UnknownDID) : TrustAnchorDict :=
   List.map (fun (did, info) =>
     if did = anchorDID then
       (did, { info with trustees := trusteeDID :: info.trustees })
@@ -110,7 +112,7 @@ def addTrustee (dict : TrustAnchorDict) (anchorDID : DID) (trusteeDID : DID) : T
 
 /-- 辞書内のすべてのエントリーが正規かどうかを検証 -/
 def allValid (dict : TrustAnchorDict) : Prop :=
-  ∀ (anchorDID : DID) (info : TrustAnchorInfo),
+  ∀ (anchorDID : UnknownDID) (info : TrustAnchorInfo),
     (anchorDID, info) ∈ dict →
     TrustAnchorInfo.isValid anchorDID info
 
@@ -127,7 +129,7 @@ structure Wallet where
   identities : List Identity
 
   -- 保管されている資格情報
-  credentials : List VerifiableCredential
+  credentials : List UnknownVC
 
   -- 特別な証明書（ルート認証局の場合）
   rootAuthorityCertificate : Option RootAuthorityCertificate
@@ -148,15 +150,15 @@ structure Wallet where
 namespace Wallet
 
 /-- WalletにDIDが含まれているかを確認する -/
-def containsDID (wallet : Wallet) (did : DID) : Bool :=
+def containsDID (wallet : Wallet) (did : UnknownDID) : Bool :=
   wallet.identities.any (fun identity => identity.did == did)
 
 /-- WalletからDIDに対応するIdentityを取得する -/
-def getIdentity (wallet : Wallet) (did : DID) : Option Identity :=
+def getIdentity (wallet : Wallet) (did : UnknownDID) : Option Identity :=
   wallet.identities.find? (fun identity => identity.did == did)
 
 /-- WalletにDIDが含まれていることを表す命題 -/
-def hasDID (wallet : Wallet) (did : DID) : Prop :=
+def hasDID (wallet : Wallet) (did : UnknownDID) : Prop :=
   ∃ (identity : Identity), identity ∈ wallet.identities ∧ identity.did = did
 
 /-- Identityが正規かどうかを検証する述語
@@ -168,7 +170,7 @@ def hasDID (wallet : Wallet) (did : DID) : Prop :=
     Walletに挿入することを防ぐ。
 -/
 def isValidIdentity (identity : Identity) : Prop :=
-  identity.did = DID.fromDocument identity.didDocument
+  identity.did = UnknownDID.fromDocument identity.didDocument
 
 /-- Walletが正規かどうかを検証する述語
 
@@ -192,7 +194,7 @@ theorem valid_wallet_identity_consistency :
   ∀ (w : Wallet) (identity : Identity),
     isValid w →
     identity ∈ w.identities →
-    identity.did = DID.fromDocument identity.didDocument := by
+    identity.did = UnknownDID.fromDocument identity.didDocument := by
   intro w identity h_valid h_mem
   have h := valid_wallet_has_valid_identities w identity h_valid h_mem
   unfold isValidIdentity at h
@@ -228,11 +230,11 @@ theorem list_length_pos_of_forall_mem {α : Type _} (l : List α) (P : α → Pr
     これにより、Holderは偽警官（不正な検証者）にZKPを送信することを防ぐことができる。
 -/
 structure VerifierAuthMessage where
-  expectedTrustAnchor : DID
-  verifierDID : DID
-  verifierCredentials : List VerifiableCredential
+  expectedTrustAnchor : UnknownDID
+  verifierDID : UnknownDID
+  verifierCredentials : List UnknownVC
   nonce2 : Nonce
-  authProof : ZeroKnowledgeProof
+  authProof : UnknownZKP
 
 namespace VerifierAuthMessage
 
@@ -243,7 +245,7 @@ namespace VerifierAuthMessage
     検証項目:
     1. expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに存在する
     2. verifierCredentialsに少なくとも1つのVerifierVCが含まれる
-    3. すべてのVerifierVCが有効である（VerifiableCredential.isValid）
+    3. すべてのVerifierVCが有効である（UnknownVC.isValid）
     4. すべてのVerifierVCのissuerがexpectedTrustAnchorと一致する
     5. すべてのVerifierVCのsubjectがverifierDIDと一致する
     6. authProofが有効である（ZeroKnowledgeProof.isValid）
@@ -256,13 +258,13 @@ def validateVerifierAuth (msg : VerifierAuthMessage) (holderWallet : Wallet) : P
   -- 3-5. すべてのVerifierVCが以下の条件を満たす
   (∀ vc ∈ msg.verifierCredentials,
     -- VCが有効である
-    VerifiableCredential.isValid vc ∧
+    UnknownVC.isValid vc ∧
     -- VCの発行者がexpectedTrustAnchorと一致する
-    VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
+    UnknownVC.getIssuer vc = msg.expectedTrustAnchor ∧
     -- VCのsubjectがverifierDIDと一致する
-    VerifiableCredential.getSubject vc = msg.verifierDID) ∧
+    UnknownVC.getSubject vc = msg.verifierDID) ∧
   -- 6. authProofが有効である
-  ∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation
+  ∃ (relation : Relation), UnknownZKP.isValid msg.authProof relation
 
 end VerifierAuthMessage
 
@@ -281,11 +283,11 @@ theorem authentic_verifier_passes :
     msg.verifierCredentials ≠ [] →
     -- 前提条件: すべてのVerifierVCが正規に発行されている
     (∀ vc ∈ msg.verifierCredentials,
-      VerifiableCredential.isValid vc ∧
-      VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
-      VerifiableCredential.getSubject vc = msg.verifierDID) →
+      UnknownVC.isValid vc ∧
+      UnknownVC.getIssuer vc = msg.expectedTrustAnchor ∧
+      UnknownVC.getSubject vc = msg.verifierDID) →
     -- 前提条件: authProofが有効
-    (∃ (relation : Relation), ZeroKnowledgeProof.isValid msg.authProof relation) →
+    (∃ (relation : Relation), UnknownZKP.isValid msg.authProof relation) →
     -- 結論: 検証に成功する
     validateVerifierAuth msg holderWallet := by
   intro msg holderWallet h_isSome h_ne h_vcs h_zkp
@@ -298,9 +300,9 @@ theorem authentic_verifier_passes :
   constructor
   · -- 条件2: length > 0
     exact list_length_pos_of_forall_mem msg.verifierCredentials
-      (fun vc => VerifiableCredential.isValid vc ∧
-        VerifiableCredential.getIssuer vc = msg.expectedTrustAnchor ∧
-        VerifiableCredential.getSubject vc = msg.verifierDID)
+      (fun vc => UnknownVC.isValid vc ∧
+        UnknownVC.getIssuer vc = msg.expectedTrustAnchor ∧
+        UnknownVC.getSubject vc = msg.verifierDID)
       h_vcs h_ne
   constructor
   · -- 条件3: すべてのVCが有効
@@ -323,11 +325,11 @@ theorem fake_verifier_fails :
     ((TrustAnchorDict.lookup holderWallet.trustedAnchors msg.expectedTrustAnchor).isNone ∨
      -- 条件2-4: 不正なVerifierVC
      (∃ vc ∈ msg.verifierCredentials,
-       ¬VerifiableCredential.isValid vc ∨
-       VerifiableCredential.getIssuer vc ≠ msg.expectedTrustAnchor ∨
-       VerifiableCredential.getSubject vc ≠ msg.verifierDID) ∨
+       ¬UnknownVC.isValid vc ∨
+       UnknownVC.getIssuer vc ≠ msg.expectedTrustAnchor ∨
+       UnknownVC.getSubject vc ≠ msg.verifierDID) ∨
      -- 条件5: 無効なZKP
-     (∀ (relation : Relation), ¬ZeroKnowledgeProof.isValid msg.authProof relation)) →
+     (∀ (relation : Relation), ¬UnknownZKP.isValid msg.authProof relation)) →
     -- 結論: 検証に失敗する
     ¬validateVerifierAuth msg holderWallet := by
   intro msg holderWallet h_bad
@@ -364,7 +366,7 @@ end VerifierAuthMessage
 /-- 信頼ポリシーの定義 -/
 structure TrustPolicy where
   -- 信頼するルート認証局のリスト
-  trustedRoots : List DID
+  trustedRoots : List UnknownDID
   -- 最大信頼チェーン深さ
   maxChainDepth : Nat
   -- 必須のクレームタイプ
@@ -404,7 +406,7 @@ structure Trustee where
   -- （TrusteeVCに含まれるauthorizedClaimIDsと一致）
   authorizedClaimIDs : List ClaimID
   -- 発行者としての認証情報（上位認証局から発行されたVC）
-  issuerCredential : VerifiableCredential
+  issuerCredential : UnknownVC
   -- 不変条件: Walletは正規である
   wallet_valid : Wallet.isValid wallet
 
@@ -439,7 +441,7 @@ structure Verifier where
 -- - 悪意ある他者とは暗号理論の範囲でのみ信頼が成立
 -- - Wallet選択、操作、デバイス故障、ソーシャルハッキングは自己責任の範囲
 
-namespace DID
+namespace UnknownDID
 
 /-- Theorem: Holderが提示する正規のDIDDocumentは検証に成功する（完全性）
 
@@ -454,23 +456,23 @@ namespace DID
 theorem holder_valid_pair_passes :
   ∀ (holder : Holder) (identity : Identity) (vdoc : ValidDIDDocument),
     identity ∈ holder.wallet.identities →
-    identity.didDocument = DIDDocument.valid vdoc →
+    identity.didDocument = UnknownDIDDocument.valid vdoc →
     isValid identity.did vdoc := by
   intro holder identity vdoc h_mem h_doc_eq
   unfold isValid
   -- Holder構造体の不変条件により、identity.did = DID.fromDocument identity.didDocument
   have h_eq := Wallet.valid_wallet_identity_consistency holder.wallet identity
     holder.wallet_valid h_mem
-  -- identity.didDocument = DIDDocument.valid vdoc を使う
+  -- identity.didDocument = UnknownDIDDocument.valid vdoc を使う
   rw [h_doc_eq] at h_eq
-  -- 今、identity.did = DID.fromDocument (DIDDocument.valid vdoc)
-  unfold DID.fromDocument at h_eq
+  -- 今、identity.did = DID.fromDocument (UnknownDIDDocument.valid vdoc)
+  unfold UnknownDID.fromDocument at h_eq
   -- identity.did = DID.valid (fromValidDocument vdoc)
   -- h_eqを使ってgoalのidentity.didを書き換える
   -- 書き換え後、match式が自動的に簡約されて証明が完了する
   rw [h_eq]
 
-end DID
+end UnknownDID
 
 -- ## プロトコルの安全性
 
@@ -481,33 +483,26 @@ end DID
 
     **設計思想の形式化:**
     - Verifierは以下のみを検証する:
-      1. DID = validDIDDocumentToDID(ValidDIDDocument) の数学的関係
-      2. ZKPの暗号的検証（ZeroKnowledgeProof.verify）
-      3. VCの署名検証（VerifiableCredential.isValid）
+      1. ZKPの暗号的検証（ZeroKnowledgeProof.verify）
+      2. VCの署名検証（UnknownVC.isValid）
+      3. トラストアンカーチェーンの検証
     - Wallet内部の実装、秘密鍵の管理方法、ZKP生成アルゴリズムは検証しない
     - したがって、Walletバグは検証結果に影響しない（バグがあれば検証失敗）
 
     **証明の要点:**
-    Verifierの検証は公開情報と暗号的検証のみに基づくため、
-    Wallet実装がどうであれ、検証ロジックは変わらない。
+    ZKPが有効であることは、ZeroKnowledgeProof.isValidの定義により、
+    ZeroKnowledgeProof.verifyがtrueを返すことと同値である。
+    この検証は暗号的検証のみに基づき、Wallet実装に依存しない。
 -/
 theorem verifier_cryptographic_soundness :
-  ∀ (_verifier : Verifier) (did : DID) (doc : ValidDIDDocument),
-    -- Verifierの検証: DID.isValid のみ（暗号的関係の検証）
-    DID.isValid did doc →
-    -- 結論: この検証はWallet実装に依存しない（数学的関係のみ）
-    did = DID.fromDocument (DIDDocument.valid doc) := by
-  intro _verifier did doc h_valid
-  unfold DID.isValid at h_valid
-  cases did with
-  | valid vdid =>
-    -- h_valid: vdid = DID.fromValidDocument doc
-    rw [h_valid]
-    unfold DID.fromDocument
-    simp
-  | invalid _ =>
-    -- h_valid: False なので矛盾
-    cases h_valid
+  ∀ (_verifier : Verifier) (zkp : UnknownZKP) (relation : Relation),
+    -- Verifierの検証: ZKPの暗号的検証のみ
+    UnknownZKP.isValid zkp relation →
+    -- 結論: この検証はWallet実装に依存しない（暗号的検証のみ）
+    UnknownZKP.verify zkp relation = true := by
+  intro _verifier zkp relation h_valid
+  unfold UnknownZKP.isValid at h_valid
+  exact h_valid
 
 /-- Theorem: プロトコルの健全性（Protocol Soundness）
 
@@ -523,16 +518,16 @@ theorem protocol_soundness :
   -- 1. 完全性: 正規のHolderは検証成功（ValidDIDDocumentを持つ場合）
   (∀ (holder : Holder) (identity : Identity) (vdoc : ValidDIDDocument),
     identity ∈ holder.wallet.identities →
-    identity.didDocument = DIDDocument.valid vdoc →
-    DID.isValid identity.did vdoc) ∧
+    identity.didDocument = UnknownDIDDocument.valid vdoc →
+    UnknownDID.isValid identity.did vdoc) ∧
   -- 2. 健全性: 不正なペアは検証失敗
-  (∀ (did : DID) (doc : ValidDIDDocument),
-    DID.isInvalidPair did doc →
-    ¬DID.isValid did doc) := by
+  (∀ (did : UnknownDID) (doc : ValidDIDDocument),
+    UnknownDID.isInvalidPair did doc →
+    ¬UnknownDID.isValid did doc) := by
   constructor
   · -- 完全性
     intro holder identity vdoc h_mem h_doc_eq
-    exact DID.holder_valid_pair_passes holder identity vdoc h_mem h_doc_eq
+    exact UnknownDID.holder_valid_pair_passes holder identity vdoc h_mem h_doc_eq
   · -- 健全性
     intro did doc h_invalid
-    exact DID.invalid_pair_fails_validation did doc h_invalid
+    exact UnknownDID.invalid_pair_fails_validation did doc h_invalid

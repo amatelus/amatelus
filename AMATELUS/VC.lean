@@ -253,13 +253,6 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
 
 -- ## Helper Functions for Context and VCType conversion
 
-/-- 認証局の種類 -/
-inductive AuthorityType
-  | Government           -- 政府機関
-  | CertifiedCA          -- 認定認証局
-  | IndustrialStandard   -- 業界標準機関
-  deriving Repr, DecidableEq
-
 /-- VCの基底構造
 
     すべてのVC型が共通して持つフィールド。
@@ -277,6 +270,10 @@ structure VCBase where
   -- None = トラストアンカー直接発行（0階層）
   -- Some anchorDID = 委任者経由発行（1階層）
   delegator : Option ValidDID
+  -- 発行可能なクレームIDのリスト（受託者認証用）
+  -- [] = クレームID制限なし（通常のVC）
+  -- [claimID1, claimID2, ...] = 指定されたクレームIDのみ発行可能（受託者認証）
+  authorizedClaimIDs : List ClaimID
   deriving Repr
 
 /-- トラストアンカーVC
@@ -289,7 +286,6 @@ structure VCBase where
     - issuer: 政府のDID
     - subject: 政府のDID（自己発行）
     - delegator: None（0階層：自己署名）
-    - authorityType: AuthorityType.Government
     - authorizedDomains: ["NationalID", "Residence", ...]
 
     **DID/VCモデルにおける信頼の起点:**
@@ -303,29 +299,7 @@ structure VCBase where
 -/
 structure TrustAnchorVC extends VCBase where
   -- トラストアンカー固有のクレーム
-  authorityType : AuthorityType           -- 認証局の種類（政府機関、認定CA等）
   authorizedDomains : List ClaimTypeBasic -- 発行可能なクレームドメイン
-  deriving Repr
-
-/-- 受託者認証VC
-
-    トラストアンカーが受託者に発行する認証クレデンシャル。
-    受託者が特定のクレームIDを発行する権限を持つことを証明する。
-
-    **使用例:**
-    政府（トラストアンカー）が自治体（受託者）に発行するVC：
-    - issuer: 政府のDID
-    - subject: 自治体のDID
-    - delegator: Some 政府のDID（1階層：政府が委任）
-    - authorizedClaimIDs: ["政府_1"]  -- 住民票の発行権限
-
-    **1階層制限:**
-    - このVCは`delegator: Some anchorDID`を持つため、1階層のVC
-    - 受託者が発行するVCは`delegator: Some anchorDID`を持つ必要があり、再委任は不可能
--/
-structure TrusteeVC extends VCBase where
-  -- 受託者固有のクレーム
-  authorizedClaimIDs : List ClaimID  -- 発行可能なクレームIDのリスト
   deriving Repr
 
 /-- 国民識別情報VC
@@ -405,11 +379,14 @@ structure ClaimDefinitionVC extends VCBase where
     すべての具体的なVCタイプの和型。
     AMATELUSプロトコルで扱われるVCは、以下のいずれかの型を持つ：
     - TrustAnchorVC: トラストアンカー自己証明（DID/VCモデルにおける信頼の起点）
-    - TrusteeVC: 受託者認証
     - NationalIDVC: 国民識別情報
     - AttributeVC: 一般属性情報
     - VerifierVC: 検証者認証
     - ClaimDefinitionVC: クレーム定義（トラストアンカーが自己署名で公開）
+
+    **受託者認証:**
+    任意のVC型で`authorizedClaimIDs: Some claimIDs`を設定することで、
+    受託者認証として機能する。これにより、すべてのVCタイプが受託可能となる。
 
     **設計思想:**
     - VCの発行はIssuerの責任（署名は暗号ライブラリで生成）
@@ -422,13 +399,12 @@ structure ClaimDefinitionVC extends VCBase where
     - Issuer実装の違いを抽象化（同じプロトコルで多様なIssuer実装が可能）
 
     **VCBase継承:**
-    - 共通フィールド（w3cCredential, issuerDID, subjectDID, signature, delegator）は
+    - 共通フィールド（w3cCredential, issuerDID, subjectDID, signature, delegator, authorizedClaimIDs）は
       各VC型がVCBaseを継承することで保持される
     - 各VC型は型固有のフィールドを追加で持つ
 -/
 inductive ValidVC
   | trustAnchorVC : TrustAnchorVC → ValidVC
-  | trusteeVC : TrusteeVC → ValidVC
   | nationalIDVC : NationalIDVC → ValidVC
   | attributeVC : AttributeVC → ValidVC
   | verifierVC : VerifierVC → ValidVC
@@ -439,7 +415,6 @@ namespace ValidVC
 /-- ValidVCからW3C基本構造を取得 -/
 def getCore : ValidVC → W3C.Credential
   | trustAnchorVC vc => vc.w3cCredential
-  | trusteeVC vc => vc.w3cCredential
   | nationalIDVC vc => vc.w3cCredential
   | attributeVC vc => vc.w3cCredential
   | verifierVC vc => vc.w3cCredential
@@ -448,7 +423,6 @@ def getCore : ValidVC → W3C.Credential
 /-- ValidVCから発行者DIDを取得 -/
 def getIssuerDID : ValidVC → ValidDID
   | trustAnchorVC vc => vc.issuerDID
-  | trusteeVC vc => vc.issuerDID
   | nationalIDVC vc => vc.issuerDID
   | attributeVC vc => vc.issuerDID
   | verifierVC vc => vc.issuerDID
@@ -457,7 +431,6 @@ def getIssuerDID : ValidVC → ValidDID
 /-- ValidVCから主体DIDを取得 -/
 def getSubjectDID : ValidVC → ValidDID
   | trustAnchorVC vc => vc.subjectDID
-  | trusteeVC vc => vc.subjectDID
   | nationalIDVC vc => vc.subjectDID
   | attributeVC vc => vc.subjectDID
   | verifierVC vc => vc.subjectDID
@@ -466,7 +439,6 @@ def getSubjectDID : ValidVC → ValidDID
 /-- ValidVCから署名を取得 -/
 def getSignature : ValidVC → Signature
   | trustAnchorVC vc => vc.signature
-  | trusteeVC vc => vc.signature
   | nationalIDVC vc => vc.signature
   | attributeVC vc => vc.signature
   | verifierVC vc => vc.signature
@@ -475,11 +447,18 @@ def getSignature : ValidVC → Signature
 /-- ValidVCから委任者を取得 -/
 def getDelegator : ValidVC → Option ValidDID
   | trustAnchorVC vc => vc.delegator
-  | trusteeVC vc => vc.delegator
   | nationalIDVC vc => vc.delegator
   | attributeVC vc => vc.delegator
   | verifierVC vc => vc.delegator
   | claimDefinitionVC vc => vc.delegator
+
+/-- ValidVCから発行可能なクレームIDのリストを取得 -/
+def getAuthorizedClaimIDs : ValidVC → List ClaimID
+  | trustAnchorVC vc => vc.authorizedClaimIDs
+  | nationalIDVC vc => vc.authorizedClaimIDs
+  | attributeVC vc => vc.authorizedClaimIDs
+  | verifierVC vc => vc.authorizedClaimIDs
+  | claimDefinitionVC vc => vc.authorizedClaimIDs
 
 end ValidVC
 

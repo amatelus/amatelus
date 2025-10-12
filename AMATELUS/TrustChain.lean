@@ -263,17 +263,17 @@ def isTrustAnchor (issuer : Issuer) (did : UnknownDID) (verifierWallet : Wallet)
     - IssuerはHolderの別名であり、固定的なロールではない
     - Holder（Issuer）が発行権限を持つかは、Wallet内のVCによって決まる
     - トラストアンカーとしての権限: 自己署名のClaimDefinitionVCを持つ
-    - 受託者としての権限: TrustAnchorから発行されたTrusteeVCを持つ
+    - 受託者としての権限: TrustAnchorから発行されたauthorizedClaimIDsを持つVCを持つ
 
     **判定ロジック:**
     いずれかのWalletに以下のVCが存在すれば権限あり：
     1. 自己署名のClaimDefinitionVC（トラストアンカーとして振る舞う）
-    2. TrustAnchorから発行されたTrusteeVC（受託者として振る舞う）
+    2. TrustAnchorから発行されたauthorizedClaimIDsを持つVC（受託者として振る舞う）
 
     **検証者の視点:**
     検証者は以下を確認する：
     - トラストアンカーのクレーム定義VC（Wallet.trustedAnchorsに登録済み）
-    - 受託者のTrusteeVC（トラストアンカーから発行され、authorizedClaimIDsを含む）
+    - 受託者のVC（トラストアンカーから発行され、authorizedClaimIDsを含む）
 -/
 def isAuthorizedForClaim (issuer : Issuer) (claimID : ClaimID) (verifierWallet : Wallet) : Prop :=
   -- トラストアンカーとしての権限: いずれかのWalletに自己署名のClaimDefinitionVCが存在
@@ -289,15 +289,16 @@ def isAuthorizedForClaim (issuer : Issuer) (claimID : ClaimID) (verifierWallet :
            -- 検証者がこのトラストアンカーを信頼している
            (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
      | _ => False)) ∨
-  -- 受託者としての権限: いずれかのWalletにTrustAnchorから発行されたTrusteeVCが存在
-  (∃ wallet ∈ issuer.wallets, ∃ trusteeVC ∈ wallet.credentials,
-    (match trusteeVC with
-     | ValidVC.trusteeVC tvc =>
-         -- ClaimIDがauthorizedClaimIDsに含まれる
-         claimID ∈ tvc.authorizedClaimIDs ∧
-         -- TrusteeVCのissuerがトラストアンカーである（検証者が信頼している）
-         (TrustAnchorDict.lookup verifierWallet.trustedAnchors tvc.issuerDID).isSome
-     | _ => False))
+  -- 受託者としての権限: いずれかのWalletにTrustAnchorから発行されたauthorizedClaimIDsを持つVCが存在
+  (∃ wallet ∈ issuer.wallets, ∃ delegatedVC ∈ wallet.credentials,
+    -- VCからauthorizedClaimIDsを取得し、claimIDが含まれるかチェック
+    let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC
+    -- ClaimIDがauthorizedClaimIDsに含まれる（空でない場合のみチェック）
+    authorizedClaimIDs ≠ [] ∧
+    claimID ∈ authorizedClaimIDs ∧
+    -- VCのissuerがトラストアンカーである（検証者が信頼している）
+    let issuerDID := ValidVC.getIssuerDID delegatedVC
+    (TrustAnchorDict.lookup verifierWallet.trustedAnchors issuerDID).isSome)
 
 /-- 発行者がクレームを発行する権限を持つかを判定（Claims引数版）
 
@@ -346,13 +347,13 @@ theorem trust_anchor_authorized :
 /-- Theorem: 受託者の認可（1階層版、定理化）
 
     **DID/VCモデルにおける新設計:**
-    Issuer（Holder）がWallet内のTrusteeVCから取得したauthorizedClaimIDsに
-    含まれるClaimIDを持つクレームを発行する権限を持つことは、定義から直接導かれる。
+    Issuer（Holder）がWallet内のauthorizedClaimIDsを持つVCから取得したClaimIDに
+    含まれるクレームを発行する権限を持つことは、定義から直接導かれる。
 
     **証明の構造:**
-    1. いずれかのWallet内にTrusteeVCが存在する
-    2. TrusteeVCのauthorizedClaimIDsにclaimIDが含まれる
-    3. TrusteeVCのissuerがトラストアンカーである（検証者が信頼している）
+    1. いずれかのWallet内にauthorizedClaimIDsを持つVCが存在する
+    2. VCのauthorizedClaimIDsにclaimIDが含まれる
+    3. VCのissuerがトラストアンカーである（検証者が信頼している）
     → isAuthorizedForClaim定義により認可される（右側の選言肢）
 
     **1階層制限:**
@@ -364,12 +365,12 @@ theorem trust_anchor_authorized :
 -/
 theorem trustee_direct_authorized :
   ∀ (issuer : Issuer) (claimID : ClaimID) (verifierWallet : Wallet),
-    (∃ wallet ∈ issuer.wallets, ∃ trusteeVC ∈ wallet.credentials,
-      (match trusteeVC with
-       | ValidVC.trusteeVC tvc =>
-           claimID ∈ tvc.authorizedClaimIDs ∧
-           (TrustAnchorDict.lookup verifierWallet.trustedAnchors tvc.issuerDID).isSome
-       | _ => False)) →
+    (∃ wallet ∈ issuer.wallets, ∃ delegatedVC ∈ wallet.credentials,
+      let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC
+      authorizedClaimIDs ≠ [] ∧
+      claimID ∈ authorizedClaimIDs ∧
+      let issuerDID := ValidVC.getIssuerDID delegatedVC
+      (TrustAnchorDict.lookup verifierWallet.trustedAnchors issuerDID).isSome) →
     isAuthorizedForClaim issuer claimID verifierWallet := by
   intro issuer claimID verifierWallet h
   unfold isAuthorizedForClaim

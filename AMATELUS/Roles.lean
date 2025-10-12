@@ -407,7 +407,7 @@ structure Holder where
     - 型としてはHolderと同一（エイリアス）
 
     **発行権限:**
-    - ClaimDefinitionVC（自己署名）またはTrusteeVC（委譲）を持つことで発行権限を得る
+    - ClaimDefinitionVC（自己署名）またはauthorizedClaimIDsを持つVC（委譲）を持つことで発行権限を得る
     - 一般人でも家族や友達にVCを発行できる（W3C VC仕様に準拠）
 -/
 abbrev Issuer := Holder

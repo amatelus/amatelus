@@ -263,6 +263,7 @@ noncomputable def issueCredential
     subjectDID := subjectDID
     signature := signature
     delegator := none  -- 委任なし（トラストアンカー直接発行）
+    authorizedClaimIDs := []  -- クレームID制限なし（通常のVC）
     -- AttributeVC specific fields
     claims := claims
   }
@@ -360,7 +361,7 @@ def verifyTrustChain
   let issuerDID := UnknownVC.getIssuer vc
   -- 信頼するトラストアンカーのリスト（dictのキー）
   let trustedRoots := dict.map (fun (did, _) => UnknownDID.valid did)
-  -- 発行者がルート認証局リストに含まれているか確認
+  -- 発行者がトラストアンカーのリストに含まれているか確認
   (issuerDID ∈ trustedRoots) ∨
   -- または、信頼チェーンを辿る（深さはMaxChainDepth = 1に固定）
   (checkTrustChainRecursive dict trustedRoots issuerDID MaxChainDepth)

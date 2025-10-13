@@ -31,6 +31,9 @@ import AMATELUS.ReplayResistance
 -- 相互認証プロトコル（Verifier認証）
 import AMATELUS.MutualAuthentication
 
+-- マルチデバイス対応
+import AMATELUS.MultiDevice
+
 -- プライバシー保護機構の証明 (Theorem 5.1, 5.3)
 import AMATELUS.Privacy
 

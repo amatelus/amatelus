@@ -238,7 +238,7 @@ def getClaimID (claims : Claims) : Option ClaimID :=
 /-- トラストアンカーの判定（1階層版、DID/VCモデル）
 
     **DID/VCモデルにおける設計:**
-    - トラストアンカーは「信頼されたDID + DIDDocument + 自己発行TrustAnchorVC」として表現
+    - トラストアンカーは「信頼されたDID + DIDDocument + 自己発行」として表現
     - PKI的なRootAuthorityCertificateは不要
     - Issuer（Holder）がトラストアンカーとして振る舞うには、
       検証者の信頼するトラストアンカーのDIDを所有していること

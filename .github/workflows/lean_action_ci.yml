@@ -89,7 +89,6 @@ jobs:
       - name: Copy API documentation to `home_page/docs`
         run: |
           sudo chown -R runner:runner home_page
-          ls -l .
           cp -r .lake/build/doc home_page/docs
 
       - name: Remove unnecessary lake files from documentation in `home_page/docs`

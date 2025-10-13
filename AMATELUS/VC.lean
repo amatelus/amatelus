@@ -5,6 +5,7 @@
 -/
 
 import AMATELUS.DID
+import AMATELUS.TrustChainTypes
 import W3C.VC
 
 -- ## Definition 2.2: Verifiable Credential
@@ -77,164 +78,6 @@ noncomputable def fromComponents
   { hash := hashForDID (auditSection.value ++ nationalID.value) }
 
 end AnonymousHashIdentifier
-
--- ## Authorization Proof for Embedded Trust Delegation
-
-/-- 権限証明（Authorization Proof）
-
-    権限を与える側から受ける側への権限委譲を証明する構造。
-    この構造はW3C.CredentialSubject.claims内に埋め込まれる。
-
-    **新設計の利点:**
-    - Self-contained VC: 単一のVCで全ての検証が完結
-    - 別VCの提示不要: 権限証明がVC内に含まれる
-    - プライバシー向上: 受託者のWallet内容を公開不要
-    - 実世界適合: 紙の証明書に近い概念
-
-    **使用例:**
-    政府が自治体Aに住民票発行権限を委譲する場合：
-    - grantorDID: "did:amt:gov123..."
-    - granteeDID: "did:amt:city-a456..."
-    - authorizedClaimIDs: ["住民票", "戸籍謄本"]
-    - grantorSignature: "0x123abc..." （政府の署名）
-
-    住民が自治体Aから住民票VCを受け取る際、このVC内のclaims配列に：
-    1. 住民の属性情報（氏名、住所等）
-    2. この権限証明（政府→自治体Aの委譲証明）
-    が両方含まれる。
-
-    **重要な設計思想:**
-    誰でも他者に権限を委譲できるが、その委譲が有効かどうかは受け取る側が
-    grantorを自分のWallet.trustedAnchorsに登録しているかで決まる。
--/
-structure AuthorizationProof where
-  /-- 権限を与える側のDID -/
-  grantorDID : ValidDID
-  /-- 権限を受ける側のDID -/
-  granteeDID : ValidDID
-  /-- 発行可能なクレームIDのリスト -/
-  authorizedClaimIDs : List ClaimID
-  /-- 権限を与える側の署名（この権限証明全体に対する署名） -/
-  grantorSignature : Signature
-  deriving Repr
-
-namespace AuthorizationProof
-
-/-- AuthorizationProofをW3C.DIDValue.mapに変換
-
-    W3C.CredentialSubject.claims内に埋め込むため、DIDValue形式に変換する。
-
-    **DIDValue構造:**
-    ```
-    DIDValue.map [
-      ("auth_proof", DIDValue.map [
-        ("grantor_did", DIDValue.string "did:amt:..."),
-        ("grantee_did", DIDValue.string "did:amt:..."),
-        ("authorized_claim_ids", DIDValue.list [
-          DIDValue.string "claim1",
-          DIDValue.string "claim2"
-        ]),
-        ("grantor_signature", DIDValue.string "0x...")
-      ])
-    ]
-    ```
--/
-def toDIDValue (proof : AuthorizationProof) : W3C.DIDValue :=
-  W3C.DIDValue.map [
-    ("grantor_did", W3C.DIDValue.string proof.grantorDID.w3cDID.value),
-    ("grantee_did", W3C.DIDValue.string proof.granteeDID.w3cDID.value),
-    ("authorized_claim_ids", W3C.DIDValue.list
-      (proof.authorizedClaimIDs.map fun cid => W3C.DIDValue.string cid.value)),
-    ("grantor_signature", W3C.DIDValue.string (toString proof.grantorSignature.bytes))
-  ]
-
-/-- W3C.DIDValueからAuthorizationProofを抽出（検証付き）
-
-    **パラメータ:**
-    - `didValue`: 抽出元のDIDValue
-    - `validateDID`: DID文字列を検証する関数
-
-    **戻り値:**
-    - `Some proof`: 抽出・検証成功
-    - `None`: 構造不正またはDID検証失敗
--/
-def fromDIDValue
-    (didValue : W3C.DIDValue)
-    (validateDID : W3C.DID → Option ValidDID) : Option AuthorizationProof :=
-  match didValue with
-  | W3C.DIDValue.map fields =>
-      -- 各フィールドを抽出
-      let grantorDIDStr := fields.lookup "grantor_did"
-      let granteeDIDStr := fields.lookup "grantee_did"
-      let authorizedClaimIDsVal := fields.lookup "authorized_claim_ids"
-      let grantorSigStr := fields.lookup "grantor_signature"
-
-      match grantorDIDStr, granteeDIDStr, authorizedClaimIDsVal, grantorSigStr with
-      | some (W3C.DIDValue.string grantorStr),
-        some (W3C.DIDValue.string granteeStr),
-        some (W3C.DIDValue.list claimIDVals),
-        some (W3C.DIDValue.string _sigStr) =>
-          -- DID検証
-          let grantorDIDOpt := validateDID { value := grantorStr }
-          let granteeDIDOpt := validateDID { value := granteeStr }
-
-          match grantorDIDOpt, granteeDIDOpt with
-          | some grantorDID, some granteeDID =>
-              -- ClaimIDリストを抽出
-              let claimIDs := claimIDVals.filterMap fun val =>
-                match val with
-                | W3C.DIDValue.string s => some { value := s : ClaimID }
-                | _ => none
-
-              -- AuthorizationProofを構築
-              -- TODO: sigStrを List UInt8 に変換する必要がある
-              some {
-                grantorDID := grantorDID,
-                granteeDID := granteeDID,
-                authorizedClaimIDs := claimIDs,
-                grantorSignature := { bytes := [] }  -- 仮実装
-              }
-          | _, _ => none
-      | _, _, _, _ => none
-  | _ => none
-
-/-- W3C.CredentialSubject.claimsから権限証明を抽出
-
-    claims配列から"auth_proof"キーを持つエントリを探し、
-    AuthorizationProofとして抽出する。
-
-    **パラメータ:**
-    - `claims`: W3C.CredentialSubject.claimsリスト
-    - `validateDID`: DID検証関数
-
-    **戻り値:**
-    - `Some proof`: 権限証明が見つかり、検証成功
-    - `None`: 権限証明が見つからないか、検証失敗
--/
-def fromCredentialSubjectClaims
-    (claims : List (String × W3C.DIDValue))
-    (validateDID : W3C.DID → Option ValidDID) : Option AuthorizationProof :=
-  match claims.lookup "auth_proof" with
-  | none => none
-  | some authProofValue => fromDIDValue authProofValue validateDID
-
-/-- 権限証明の署名を検証
-
-    **検証内容:**
-    1. grantorSignatureがgrantorDIDの公開鍵で検証できるか
-    2. 署名対象データ: granteeDID || authorizedClaimIDs
-
-    **設計:**
-    実装では、Signature型が既に検証済みであることを前提とする。
-    （ValidVC構築時に署名検証済み）
-    この関数は形式的な検証ロジックのプレースホルダー。
--/
-def verifyProofSignature (_proof : AuthorizationProof) : Bool :=
-  -- 実装: 署名検証ロジック
-  -- 現時点では、SignatureがValidVCに含まれる時点で検証済みと仮定
-  true
-
-end AuthorizationProof
 
 -- ## Helper Functions for W3C Issuer
 
@@ -420,32 +263,23 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
     一般的な属性情報（年齢、住所、資格など）を証明するVC。
     汎用的なクレームタイプで、様々な発行者が発行できる。
 
-    **新設計の簡素化:**
+    **設計の簡素化:**
     - すべての属性情報（検証者資格含む）を単一の型で表現
-    - w3cCredential.credentialSubject.claimsに権限証明を埋め込むことで、受託者認証として機能
+    - w3cCredential.credentialSubject.claimsに委任チェーンを埋め込むことで、受託者認証として機能
     - 各Walletの所有者が、どのDIDを信頼するか（Wallet.trustedAnchorsに登録）を自由に決定
 
-    **新設計における1階層制限:**
-    - 直接発行: w3cCredential.credentialSubject.claimsに権限証明なし（0階層）
-      発行者が当該Walletで信頼されていれば受け入れ
-    - 委譲発行: w3cCredential.credentialSubject.claimsに権限証明あり（1階層）
-      - claims配列に ("auth_proof", AuthorizationProof) を含む
-      - AuthorizationProofのgrantorが当該Walletで信頼されていれば受け入れ
+    **階層制限（N階層対応）:**
+    - 直接発行: claims配列に委任チェーンなし（0階層）
+    - N階層委譲発行: claims配列にDelegationChainを含む（N階層）
+      - DelegationChainにより複数階層の委任を表現
+      - 各delegationのmaxDepthにより階層制限を動的に設定
+      - 循環委任をDID重複チェックで防止
+      - 詳細はTrustChain.mdとTrustChainTypes.leanを参照
 
     **使用例:**
     自治体Aが政府から委譲された権限で住民票VCを発行する場合、
-    w3cCredential.credentialSubject.claimsには以下が含まれる：
-    ```
-    [
-      ("resident_info", DIDValue.map [住民の属性]),
-      ("auth_proof", AuthorizationProof {
-        grantorDID: 政府DID,
-        granteeDID: 自治体ADID,
-        authorizedClaimIDs: ["住民票"],
-        grantorSignature: 政府の署名
-      })
-    ]
-    ```
+    w3cCredential.credentialSubject.claimsには委任チェーン（DelegationChain）が含まれる。
+    詳細はTrustChainTypes.leanのDelegationChain型を参照。
 
     **設計思想:**
     - VCの発行はIssuerの責任（署名は暗号ライブラリで生成）
@@ -467,7 +301,7 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
     **権限証明の埋め込み方法:**
     委譲された権限で発行するVCでは、W3C.Credential.credentialSubject.claimsに以下を含める：
     1. 主体の属性情報（本来のクレームデータ）
-    2. AuthorizationProof（権限を与える側→権限を受ける側の委譲証明）
+    2. DelegationChain（N階層の委任チェーン）
 
     これにより、VCが自己完結し、別VCの提示が不要になる。
 -/
@@ -486,49 +320,28 @@ structure ValidVC where
 
 namespace ValidVC
 
-/-- ValidVCから権限を与えた側のDIDを取得
+/-- ValidVCから委任チェーンを取得
 
-    **新設計:**
-    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
-    grantorDID（権限を与えた側のDID）を返す。
+    w3cCredential.credentialSubject.claimsから委任チェーン（DelegationChain）を抽出する。
 
     **戻り値:**
-    - `Some grantorDID`: 権限証明が見つかった場合（委譲発行）
-    - `None`: 権限証明がない場合（直接発行）
+    - `Some chain`: 委任チェーンが見つかった場合（N階層委譲発行）
+    - `None`: 委任チェーンがない場合（直接発行）
 
-    **パラメータ:**
-    - `validateDID`: DID検証関数（通常はWallet.identitiesで検証）
+    **使用例:**
+    ```lean
+    match getDelegationChain vc with
+    | none => -- 直接発行VC
+    | some chain =>
+        -- N階層委譲発行VC
+        -- chain.depthで階層数を取得
+        -- chain.verifyで委任チェーンを検証
+    ```
 -/
-def getDelegator (vc : ValidVC) (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
-  let w3cCred := vc.w3cCredential
-  match w3cCred.credentialSubject.head? with
-  | none => none
-  | some subject =>
-      match AuthorizationProof.fromCredentialSubjectClaims subject.claims validateDID with
-      | none => none
-      | some proof => some proof.grantorDID
-
-/-- ValidVCから発行可能なクレームIDのリストを取得
-
-    **新設計:**
-    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
-    authorizedClaimIDsを返す。
-
-    **戻り値:**
-    - 権限証明がある場合: authorizedClaimIDsのリスト
-    - 権限証明がない場合: 空リスト []
-
-    **パラメータ:**
-    - `validateDID`: DID検証関数
--/
-def getAuthorizedClaimIDs (vc : ValidVC) (validateDID : W3C.DID → Option ValidDID) : List ClaimID :=
-  let w3cCred := vc.w3cCredential
-  match w3cCred.credentialSubject.head? with
-  | none => []
-  | some subject =>
-      match AuthorizationProof.fromCredentialSubjectClaims subject.claims validateDID with
-      | none => []
-      | some proof => proof.authorizedClaimIDs
+def getDelegationChain (_vc : ValidVC) : Option DelegationChain :=
+  -- TODO: W3C.CredentialSubject.claimsからDelegationChainを抽出する実装
+  -- 現時点では、データ構造の定義のみを提供
+  none
 
 end ValidVC
 
@@ -606,23 +419,18 @@ def getSubject (vc : UnknownVC) : UnknownDID :=
           reason := "Non-DID subject in InvalidVC"
         }
 
-/-- VCの権限を与えた側のDIDを取得（1階層制限の検証に使用）
+/-- VCから委任チェーンを取得
 
-    **新設計:**
-    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
-    grantorDID（権限を与えた側のDID）を返す。
+    w3cCredential.credentialSubject.claimsから委任チェーン（DelegationChain）を抽出する。
 
     **戻り値:**
-    - `Some grantorDID`: 権限証明が見つかった場合（委譲発行）
-    - `None`: 権限証明がない場合（直接発行）、またはInvalidVC
-
-    **パラメータ:**
-    - `validateDID`: DID検証関数
+    - `Some chain`: 委任チェーンが見つかった場合（N階層委譲発行）
+    - `None`: 委任チェーンがない場合（直接発行）、またはInvalidVC
 -/
-def getDelegator (vc : UnknownVC) (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
+def getDelegationChain (vc : UnknownVC) : Option DelegationChain :=
   match vc with
-  | valid vvc => ValidVC.getDelegator vvc validateDID
-  | invalid _ => none  -- InvalidVCは委任者情報を持たない
+  | valid vvc => ValidVC.getDelegationChain vvc
+  | invalid _ => none  -- InvalidVCは委任チェーン情報を持たない
 
 /-- VC検証関数（定義として実装）
 

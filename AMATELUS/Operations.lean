@@ -350,10 +350,10 @@ def checkTrustChainRecursive
 /-- 信頼チェーンの検証
 
     **設計思想:**
-    - AMATELUSは型システムで1階層制限を保証
-    - maxChainDepthは常にMaxChainDepth（定数1）を使用
+    - AMATELUSはN階層委任をサポート
+    - maxChainDepthはInitialMaxDepthを初期値として使用
+    - 実際の制限は各delegationのmaxDepthで決まる
     - 信頼対象DIDのリストはWallet.trustedAnchorsから取得
-    - TrustPolicy構造体は不要
 -/
 def verifyTrustChain
     (dict : TrustAnchorDict)
@@ -364,8 +364,8 @@ def verifyTrustChain
   let trustedRoots := dict.map (fun (did, _) => UnknownDID.valid did)
   -- 発行者が信頼対象リストに含まれているか確認
   (issuerDID ∈ trustedRoots) ∨
-  -- または、信頼チェーンを辿る（深さはMaxChainDepth = 1に固定）
-  (checkTrustChainRecursive dict trustedRoots issuerDID MaxChainDepth)
+  -- または、信頼チェーンを辿る（深さはInitialMaxDepthから開始）
+  (checkTrustChainRecursive dict trustedRoots issuerDID InitialMaxDepth)
 
 /-- VerifierがVCを検証 -/
 def verifyCredential

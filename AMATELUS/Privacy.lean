@@ -238,14 +238,14 @@ theorem did_owner_extraction_quantum_secure :
     - 結論: 安全（128 ≥ 128）
 
     **証明:**
-    SecurityAssumptions.amatZKP_zeroKnowledge_quantum_secureにより、
+    SecurityAssumptions.amtZKP_zeroKnowledge_quantum_secureにより、
     実際の証明とシミュレートされた証明を識別する量子コストは128ビットであり、
     NIST最小要件128ビットを満たす。
 -/
 theorem zero_knowledge_property_quantum_secure :
-  amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatZKP_zeroKnowledge_quantum_secure
+  exact amtZKP_zeroKnowledge_quantum_secure
 
 /-- ZKPから秘密情報を抽出する計算コスト（暗号強度ベースの定義）
 
@@ -273,12 +273,12 @@ theorem zero_knowledge_property_quantum_secure :
 theorem zkp_no_information_leakage :
   ∀ (_zkp : UnknownZKP) (_w : Witness),
     -- 秘密情報の抽出には暗号的計算コストが必要（量子計算機でも128ビット）
-    amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+    amtZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   intro _ _
   -- 証明: zero_knowledge_property_quantum_secureにより、
   -- ZKPから秘密情報を抽出するには量子計算機でも128ビットの計算量が必要
   -- これはNIST最小要件を満たす
-  exact amatZKP_zeroKnowledge_quantum_secure
+  exact amtZKP_zeroKnowledge_quantum_secure
 
 -- ## プライバシー保護の複合的保証
 
@@ -308,7 +308,7 @@ def ComprehensivePrivacy (did₁ did₂ : UnknownDID) (service₁ service₂ : S
   -- DID所有者抽出には暗号的計算コストが必要
   didOwnerExtractionSecurity.quantumBits ≥ minSecurityLevel.quantumBits ∧
   -- ZKP識別には暗号的計算コストが必要
-  amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits
+  amtZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits
 
 -- ## タイミング攻撃への対策
 
@@ -481,9 +481,9 @@ theorem size_fixed_insufficient_for_timing_resistance :
 theorem statistical_attack_resistance :
   ∀ (_zkp : UnknownZKP),
     -- 統計的攻撃には暗号的計算コストが必要（量子計算機でも128ビット）
-    amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+    amtZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   intro _
   -- 証明: zero_knowledge_property_quantum_secureにより、
   -- 統計的攻撃で秘密情報を抽出するには量子計算機でも128ビットの計算量が必要
   -- これはNIST最小要件を満たす
-  exact amatZKP_zeroKnowledge_quantum_secure
+  exact amtZKP_zeroKnowledge_quantum_secure

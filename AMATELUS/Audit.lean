@@ -119,10 +119,10 @@ theorem brute_force_resistance_quantum_secure :
 -/
 theorem reverse_engineering_resistance_quantum_secure :
   hashPreimageSecurity.quantumBits ≥ minSecurityLevel.quantumBits ∧
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   constructor
   · exact ahi_one_way_protection_quantum_secure
-  · exact amatHashFunction.quantum_secure
+  · exact amtHashFunction.quantum_secure
 
 -- ## Theorem 6.2: Cross-Audit Unlinkability (監査区分間の名寄せ防止)
 
@@ -288,7 +288,7 @@ theorem privacy_audit_balance :
     量子計算機でも128ビットの計算量が必要です。
 
     **証明:**
-    SecurityAssumptions.amatHashFunction.quantum_secureにより、
+    SecurityAssumptions.amtHashFunction.quantum_secureにより、
     SHA3-512の衝突探索の量子コストは128ビットであり、
     NIST最小要件128ビットを満たす。
 
@@ -297,9 +297,9 @@ theorem privacy_audit_balance :
     衝突を発見することが計算量的に困難であることを主張します。
 -/
 theorem hash_collision_resistance_quantum_secure :
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatHashFunction.quantum_secure
+  exact amtHashFunction.quantum_secure
 
 /-- 異なる監査区分での独立性（量子安全性）
 
@@ -322,7 +322,7 @@ theorem hash_collision_resistance_quantum_secure :
     したがって、この独立性はハッシュ関数の衝突耐性に完全に依存する。
 -/
 theorem different_audit_section_independence_quantum_secure :
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   exact hash_collision_resistance_quantum_secure
 
 -- ## 監査ログの完全性

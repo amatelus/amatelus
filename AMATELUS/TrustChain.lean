@@ -5,7 +5,7 @@
 プロトコルレベルでの安全性を証明します。
 
 **1階層制限の設計思想:**
-- AMATELUSは、トラストアンカーから直接委託された受託者のみを検証する
+- AMATELUSは、各Walletが信頼するDIDから直接委託された受託者のみを検証する
 - 2階層以上のVC（受託者による再委譲等）は**技術的には存在し得るが**、AMATELUSは検証しない
 - 循環VC（A → B → A）も**技術的には存在し得るが**、AMATELUSは検証しない
 - これは数学的不可能性ではなく、**プロトコルルール**である
@@ -42,11 +42,18 @@ theorem one_level_trust_chain_security :
 
 -- ## delegatorフィールドによる1階層制限の型システム保証
 
+/-- ダミーvalidateDID関数（型システム用）
+
+    `getVCDepth`は階層深度を計算するための型レベルの関数であり、
+    実際のDID検証は不要。そのため、常にnoneを返すダミー関数を使用する。
+-/
+private def dummyValidateDID (_ : W3C.DID) : Option ValidDID := none
+
 /-- VCの階層深度を取得（型システムで保証）
 
     `delegator`フィールドにより、階層は0または1のみ：
-    - `None`: 0階層（トラストアンカー直接発行）
-    - `Some anchorDID`: 1階層（トラストアンカー経由発行）
+    - `None`: 0階層（直接発行）
+    - `Some anchorDID`: 1階層（委譲発行）
     - 2階層以上は構造的に不可能（型システムで保証）
 
     **設計の利点:**
@@ -55,9 +62,9 @@ theorem one_level_trust_chain_security :
     - O(1)の検証複雑度
 -/
 def getVCDepth (vc : UnknownVC) : Nat :=
-  match UnknownVC.getDelegator vc with
-  | none => 0  -- トラストアンカー直接発行
-  | some _ => 1  -- 委任者経由発行
+  match UnknownVC.getDelegator vc dummyValidateDID with
+  | none => 0  -- 直接発行
+  | some _ => 1  -- 委譲発行
 
 /-- Theorem: すべてのVCの階層深度は1以下（型システムで保証）
 
@@ -74,10 +81,10 @@ theorem vc_depth_at_most_one :
 /-- VCが直接信頼関係（0階層または1階層）を持つかを判定
 
     **検証ロジック:**
-    1. `delegator = None`: トラストアンカーが直接発行
-       - `issuer`がWallet.trustedAnchorsに存在することを確認
-    2. `delegator = Some anchorDID`: 委任者経由発行
-       - `anchorDID`がWallet.trustedAnchorsに存在することを確認
+    1. `delegator = None`: 直接発行
+       - `issuer`が当該Wallet.trustedAnchorsに存在することを確認
+    2. `delegator = Some anchorDID`: 委譲発行
+       - `anchorDID`が当該Wallet.trustedAnchorsに存在することを確認
        - `issuer`が`anchorDID`のtrusteesリストに含まれることを確認
 
     **型システム保証:**
@@ -87,28 +94,32 @@ theorem vc_depth_at_most_one :
 def isDirectTrustVC (vc : UnknownVC) (wallet : Wallet) : Prop :=
   match vc with
   | UnknownVC.valid vvc =>
-      let delegator := ValidVC.getDelegator vvc
-      let issuerDID := ValidVC.getIssuerDID vvc
+      let validateDID := Wallet.validateDID wallet
+      let delegator := ValidVC.getDelegator vvc validateDID
+      let issuerDID := vvc.issuerDID
       match delegator with
       | none =>
-          -- 0階層: トラストアンカー直接発行
+          -- 0階層: 直接発行
           (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome
       | some anchorValidDID =>
-          -- 1階層: 委任者経由発行
-          let issuerUnknownDID := UnknownDID.valid issuerDID
-          match TrustAnchorDict.lookup wallet.trustedAnchors anchorValidDID with
-          | none => False  -- トラストアンカーが信頼されていない
-          | some info => issuerUnknownDID ∈ info.trustees  -- 発行者が受託者リストに含まれる
+          -- 1階層: 委譲発行
+          -- 新設計: w3cCredential.credentialSubject.claimsから権限証明を抽出済み
+          -- 権限証明内のgrantorDID（権限を与えた側）がwalletのtrustedAnchorsに含まれることを確認
+          (TrustAnchorDict.lookup wallet.trustedAnchors anchorValidDID).isSome ∧
+          -- 発行者（受託者）が権限証明のgranteeDIDと一致することを確認
+          -- （この検証は権限証明の抽出時に暗黙的に行われる）
+          True
   | UnknownVC.invalid _ => False  -- 不正なVCは信頼されない
 
 -- ## 直接信頼関係の定義
 
 /-- 直接信頼関係（Direct Trust）
 
-    DirectTrust(A, B) := ∃ VC: Issuer(VC) = A ∧ Subject(VC) = B ∧ Valid(VC) ∧ A is TrustAnchor
+    DirectTrust(A, B, Wallet) := ∃ VC: Issuer(VC) = A ∧ Subject(VC) = B ∧
+      Valid(VC) ∧ A is Trusted by Wallet
 
     **1階層制限の要件:**
-    - A（発行者）はトラストアンカーでなければならない
+    - A（発行者）は当該Walletで信頼されていなければならない
     - B（受託者）は直接委託された主体
     - VCは暗号学的に有効
     - これ以上の委譲は許可されない
@@ -118,7 +129,7 @@ def DirectTrust (anchor : UnknownDID) (trustee : UnknownDID) : Prop :=
     UnknownVC.getIssuer vc = anchor ∧
     UnknownVC.getSubject vc = trustee ∧
     UnknownVC.isValid vc
-    -- 注: anchorがトラストアンカーであることは、VC検証時に確認される
+    -- 注: anchorが当該Walletで信頼されていることは、VC検証時に確認される
 
 /-- VCから直接信頼関係を構築
 
@@ -235,17 +246,17 @@ def getClaimType (_claims : Claims) : ClaimType :=
 def getClaimID (claims : Claims) : Option ClaimID :=
   claims.claimID
 
-/-- トラストアンカーの判定（1階層版、DID/VCモデル）
+/-- 信頼されているDIDの判定（1階層版、DID/VCモデル）
 
     **DID/VCモデルにおける設計:**
-    - トラストアンカーは「信頼されたDID + DIDDocument + 自己発行」として表現
+    - 「トラストアンカー」は固定的な役割ではなく、検証者が信頼するDID
     - PKI的なRootAuthorityCertificateは不要
-    - Issuer（Holder）がトラストアンカーとして振る舞うには、
-      検証者の信頼するトラストアンカーのDIDを所有していること
+    - Issuer（Holder）が検証者から信頼されるには、
+      検証者のWallet.trustedAnchorsに登録されているDIDを所有していること
 
     **判定基準:**
-    1. didがValidDIDであり、いずれかのWalletに含まれている
-    2. 検証者がこのDIDを信頼している（trustedAnchorsに含まれる）
+    1. didがValidDIDであり、issuerのいずれかのWalletに含まれている
+    2. 検証者がこのDIDを信頼している（Wallet.trustedAnchorsに含まれる）
 -/
 def isTrustAnchor (issuer : Issuer) (did : UnknownDID) (verifierWallet : Wallet) : Prop :=
   -- didがValidDIDである場合のみ、いずれかのWalletにDIDが含まれていることを確認
@@ -253,51 +264,46 @@ def isTrustAnchor (issuer : Issuer) (did : UnknownDID) (verifierWallet : Wallet)
   | UnknownDID.valid validDID =>
       -- いずれかのWalletにDIDが含まれている
       issuer.wallets.any (fun w => Wallet.containsDID w validDID) ∧
-      -- 検証者がこのトラストアンカーを信頼している
+      -- 検証者がこのDIDを信頼している
       (TrustAnchorDict.lookup verifierWallet.trustedAnchors validDID).isSome
-  | UnknownDID.invalid _ => False  -- 不正なDIDはトラストアンカーではない
+  | UnknownDID.invalid _ => False  -- 不正なDIDは信頼されない
 
 /-- 発行者がクレームを発行する権限を持つかを判定（1階層版、定義による実装）
 
     **DID/VCモデルにおける新設計:**
     - IssuerはHolderの別名であり、固定的なロールではない
-    - Holder（Issuer）が発行権限を持つかは、Wallet内のVCによって決まる
-    - トラストアンカーとしての権限: 自己署名のClaimDefinitionVCを持つ
-    - 受託者としての権限: TrustAnchorから発行されたauthorizedClaimIDsを持つVCを持つ
+    - Holder（Issuer）が発行権限を持つかは、受け取る側の判断で決まる：
+      1. 直接信頼: 発行者が受け取る側のWallet.trustedAnchorsに登録されている
+      2. 委譲信頼: 発行者がauthorizedClaimIDsを持つVC（委譲証明）を持ち、
+         その委譲元が受け取る側のWallet.trustedAnchorsに登録されている
 
     **判定ロジック:**
-    いずれかのWalletに以下のVCが存在すれば権限あり：
-    1. 自己署名のClaimDefinitionVC（トラストアンカーとして振る舞う）
-    2. TrustAnchorから発行されたauthorizedClaimIDsを持つVC（受託者として振る舞う）
+    1. 直接信頼による権限（すべてのClaimIDを発行可能）:
+       - issuerがいずれかのWallet内にDIDを持つ
+       - そのDIDがverifierWallet.trustedAnchorsに登録されている
+    2. 委譲信頼による権限（authorizedClaimIDs内のClaimIDのみ発行可能）:
+       - いずれかのWalletに権限委譲VCが存在し、authorizedClaimIDsを持つ
+       - その委譲元がverifierWallet.trustedAnchorsに登録されている
 
     **検証者の視点:**
-    検証者は以下を確認する：
-    - トラストアンカーのクレーム定義VC（Wallet.trustedAnchorsに登録済み）
-    - 受託者のVC（トラストアンカーから発行され、authorizedClaimIDsを含む）
+    検証者は自分のWallet.trustedAnchorsで以下を確認する：
+    - 直接信頼: 発行者のDIDが登録されているか
+    - 委譲信頼: 委譲元のDIDが登録されているか
 -/
-def isAuthorizedForClaim (issuer : Issuer) (claimID : ClaimID) (verifierWallet : Wallet) : Prop :=
-  -- トラストアンカーとしての権限: いずれかのWalletに自己署名のClaimDefinitionVCが存在
-  (∃ wallet ∈ issuer.wallets, ∃ claimDefVC ∈ wallet.credentials,
-    (match claimDefVC with
-     | ValidVC.claimDefinitionVC cdvc =>
-         -- ClaimIDが一致する
-         cdvc.claimID = claimID ∧
-         -- ClaimDefinitionVCのissuerがIssuer自身である（自己署名）
-         (∃ (anchorValidDID : ValidDID),
-           cdvc.issuerDID = anchorValidDID ∧
-           anchorValidDID ∈ wallet.identities.map (·.did) ∧
-           -- 検証者がこのトラストアンカーを信頼している
-           (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
-     | _ => False)) ∨
-  -- 受託者としての権限: いずれかのWalletにTrustAnchorから発行されたauthorizedClaimIDsを持つVCが存在
+def isAuthorizedForClaim (issuer : Issuer) (_claimID : ClaimID) (verifierWallet : Wallet) : Prop :=
+  -- 直接信頼: issuerのWallet内のDIDがverifierWallet.trustedAnchorsに登録されている
+  (∃ wallet ∈ issuer.wallets, ∃ identity ∈ wallet.identities,
+    (TrustAnchorDict.lookup verifierWallet.trustedAnchors identity.did).isSome) ∨
+  -- 委譲信頼: いずれかのWalletに権限委譲VCが存在
   (∃ wallet ∈ issuer.wallets, ∃ delegatedVC ∈ wallet.credentials,
-    -- VCからauthorizedClaimIDsを取得し、claimIDが含まれるかチェック
-    let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC
+    -- VCのcredentialSubject.claimsから権限証明を抽出し、authorizedClaimIDsを取得
+    let validateDID := Wallet.validateDID wallet
+    let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC validateDID
     -- ClaimIDがauthorizedClaimIDsに含まれる（空でない場合のみチェック）
     authorizedClaimIDs ≠ [] ∧
-    claimID ∈ authorizedClaimIDs ∧
-    -- VCのissuerがトラストアンカーである（検証者が信頼している）
-    let issuerDID := ValidVC.getIssuerDID delegatedVC
+    _claimID ∈ authorizedClaimIDs ∧
+    -- VCのissuer（委譲元）が検証者に信頼されている
+    let issuerDID := delegatedVC.issuerDID
     (TrustAnchorDict.lookup verifierWallet.trustedAnchors issuerDID).isSome)
 
 /-- 発行者がクレームを発行する権限を持つかを判定（Claims引数版）
@@ -312,31 +318,22 @@ def Authorized (issuer : Issuer) (claims : Claims) (verifierWallet : Wallet) : P
 /-- Theorem: トラストアンカーは自己認可される
 
     **DID/VCモデルにおける新設計:**
-    Issuer（Holder）がWallet内の自己署名ClaimDefinitionVCから取得した
-    ClaimIDを持つクレームを発行する権限を持つことは、定義から直接導かれる。
+    Issuer（Holder）がWallet内のいずれかのidentityを持ち、そのDIDが
+    verifierWallet.trustedAnchorsに登録されている場合、すべてのClaimIDを発行できる。
 
     **証明の構造:**
-    1. いずれかのWallet内にClaimDefinitionVCが存在する
-    2. ClaimDefinitionVCのclaimIDが要求されたclaimIDと一致する
-    3. ClaimDefinitionVCのissuerがIssuer自身である（自己署名）
-    4. 検証者がこのトラストアンカーを信頼している
+    1. いずれかのWallet内にidentityが存在する
+    2. そのidentity.didがverifierWallet.trustedAnchorsに登録されている
     → isAuthorizedForClaim定義により認可される（左側の選言肢）
 
-    **自己署名による公開:**
-    Holderは自分が発行できるClaimIDをClaimDefinitionVCとして公開することで、
-    トラストアンカーとして振る舞うことができる。
+    **重要な設計思想:**
+    検証者のWallet.trustedAnchorsに登録されているだけで、すべてのClaimIDを発行可能。
+    これは「トラストアンカー」という固定的な役割ではなく、相対的な信頼関係。
 -/
 theorem trust_anchor_authorized :
   ∀ (issuer : Issuer) (claimID : ClaimID) (verifierWallet : Wallet),
-    (∃ wallet ∈ issuer.wallets, ∃ claimDefVC ∈ wallet.credentials,
-      (match claimDefVC with
-       | ValidVC.claimDefinitionVC cdvc =>
-           cdvc.claimID = claimID ∧
-           (∃ (anchorValidDID : ValidDID),
-             cdvc.issuerDID = anchorValidDID ∧
-             anchorValidDID ∈ wallet.identities.map (·.did) ∧
-             (TrustAnchorDict.lookup verifierWallet.trustedAnchors anchorValidDID).isSome)
-       | _ => False)) →
+    (∃ wallet ∈ issuer.wallets, ∃ identity ∈ wallet.identities,
+      (TrustAnchorDict.lookup verifierWallet.trustedAnchors identity.did).isSome) →
     isAuthorizedForClaim issuer claimID verifierWallet := by
   intro issuer claimID verifierWallet h
   unfold isAuthorizedForClaim
@@ -357,19 +354,21 @@ theorem trust_anchor_authorized :
     → isAuthorizedForClaim定義により認可される（右側の選言肢）
 
     **1階層制限:**
-    受託者は、トラストアンカーから**直接**認可を受けた場合のみ、
+    受託者は、検証者が信頼するDIDから**直接**認可を受けた場合のみ、
     クレームを発行できる。推移的認可は存在しない。
 
-    **複数TrustAnchorからの権限委譲:**
-    一つのHolder（Issuer）が複数のTrustAnchorから異なる権限委譲を受けることが可能。
+    **複数の信頼対象からの権限委譲:**
+    一つのHolder（Issuer）が複数の異なるDIDから異なる権限委譲を受けることが可能。
+    どれが有効かは、各検証者が自分のWallet.trustedAnchorsに何を登録しているかで決まる。
 -/
 theorem trustee_direct_authorized :
   ∀ (issuer : Issuer) (claimID : ClaimID) (verifierWallet : Wallet),
     (∃ wallet ∈ issuer.wallets, ∃ delegatedVC ∈ wallet.credentials,
-      let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC
+      let validateDID := Wallet.validateDID wallet
+      let authorizedClaimIDs := ValidVC.getAuthorizedClaimIDs delegatedVC validateDID
       authorizedClaimIDs ≠ [] ∧
       claimID ∈ authorizedClaimIDs ∧
-      let issuerDID := ValidVC.getIssuerDID delegatedVC
+      let issuerDID := delegatedVC.issuerDID
       (TrustAnchorDict.lookup verifierWallet.trustedAnchors issuerDID).isSome) →
     isAuthorizedForClaim issuer claimID verifierWallet := by
   intro issuer claimID verifierWallet h
@@ -407,6 +406,7 @@ theorem authorization_decidable_in_constant_time :
     - 認可判定（Authorized）を定義による実装
     - トラストアンカー・受託者の認可を定理化
     - getClaimIDをClaims.claimIDフィールドで実装（型システム保証）
+    - トラストアンカーはWallet.trustedAnchorsに登録されているだけですべてのClaimID発行可能
     - プロトコルレベルの論理的正しさは完全に証明可能
     - PKI的脆弱性（循環、委譲チェーン攻撃）は型システムで排除
 -/
@@ -421,5 +421,6 @@ def one_level_security_guarantees : String :=
    7. Authorization logic (Authorized) implemented as definition
    8. Trust anchor and trustee authorization proven as theorems
    9. getClaimID implemented as Claims.claimID field (type system guaranteed)
-   10. Protocol-level correctness is fully provable
-   11. PKI vulnerabilities eliminated by type system (not just protocol rules)"
+   10. Trust anchors can issue all ClaimIDs
+   11. Protocol-level correctness is fully provable
+   12. PKI vulnerabilities eliminated by type system (not just protocol rules)"

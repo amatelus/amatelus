@@ -32,23 +32,26 @@ structure PrecomputedZKP where
   partialProof : Proof
   publicStatement : PublicInput
 
-/-- トラストアンカー情報
+/-- 信頼対象DID情報
 
-    トラストアンカーに関連する情報を保持する。
-    - didDocument: トラストアンカーのValidDIDDocument（公的に信頼される）
-    - trustees: このトラストアンカーから認証を受けた受託者のDIDリスト
-    - claimDefinitions: トラストアンカーが公開するクレーム定義VCのリスト
+    このWalletが信頼するDIDに関連する情報を保持する。
+    - didDocument: 信頼対象のValidDIDDocument
+    - trustees: このDIDから権限を委譲された受託者のDIDリスト
+
+    **重要な設計思想:**
+    「トラストアンカー」は固定的な役割ではなく、各Walletの所有者が自由に選択する
+    信頼対象のDID。家族、友人、職場の同僚、地域コミュニティ、企業、政府など、
+    誰でも他人から信頼対象として選ばれる可能性がある。
 -/
 structure TrustAnchorInfo where
   didDocument : ValidDIDDocument
-  trustees : List UnknownDID  -- このトラストアンカーから認証を受けた受託者のリスト
-  claimDefinitions : List ClaimDefinitionVC  -- トラストアンカーが定義したクレームのリスト
+  trustees : List UnknownDID  -- このDIDから権限を委譲された受託者のリスト
 
 namespace TrustAnchorInfo
 
-/-- トラストアンカー情報が正規かどうかを検証
+/-- 信頼対象DID情報が正規かどうかを検証
 
-    トラストアンカーのValidDIDとValidDIDDocumentが一致することを確認する。
+    信頼対象のValidDIDとValidDIDDocumentが一致することを確認する。
 
     **設計思想:**
     - TrustAnchorDictがValidDIDをキーとして使用するため、型レベルでDIDの正規性が保証される
@@ -57,7 +60,7 @@ namespace TrustAnchorInfo
 def isValid (anchorDID : ValidDID) (info : TrustAnchorInfo) : Prop :=
   anchorDID = UnknownDID.fromValidDocument info.didDocument
 
-/-- Theorem: 正規のトラストアンカー情報はDID検証に成功する -/
+/-- Theorem: 正規の信頼対象DID情報はDID検証に成功する -/
 theorem valid_info_passes_did_verification :
   ∀ (anchorDID : ValidDID) (info : TrustAnchorInfo),
     isValid anchorDID info →
@@ -69,15 +72,16 @@ theorem valid_info_passes_did_verification :
 
 end TrustAnchorInfo
 
-/-- トラストアンカー辞書の型
+/-- 信頼対象DID辞書の型
 
-    辞書: { トラストアンカーのValidDID ↦ TrustAnchorInfo }
+    辞書: { 信頼対象のValidDID ↦ TrustAnchorInfo }
 
     連想リストとして実装され、ValidDIDをキーとしてTrustAnchorInfoを取得できる。
 
-    **設計思想:**
-    - トラストアンカーは各個人が自由に選択・管理する（政府機関、家族、友人など）
-    - 各WalletのtrustedAnchorsに登録されたDIDが「その人にとっての」トラストアンカー
+    **重要な設計思想:**
+    - 各個人が自分のWalletで、誰を信頼するか（trustedAnchorsに登録するか）を自由に決定
+    - 「トラストアンカー」は絶対的な役割ではなく、このWalletにとって信頼されているDIDという相対的な関係
+    - 家族、友人、職場の同僚、地域コミュニティ、企業、政府など、誰でも信頼対象として選ばれうる
     - ValidDIDを使用することで、型レベルで検証済みであることを保証
     - TrustAnchorInfoにValidDIDDocumentが含まれるため、整合性が保証される
 -/
@@ -135,8 +139,9 @@ structure Wallet where
   -- ZKP事前計算データ
   precomputedProofs : List PrecomputedZKP
 
-  -- 信頼するトラストアンカーの辞書
-  -- { トラストアンカーのDID ↦ { DIDDocument、受託者のリスト } }
+  -- このWalletが信頼するDIDの辞書
+  -- 各Walletの所有者が自由に選択・管理する信頼対象DIDのリスト
+  -- { 信頼対象DID ↦ { DIDDocument、受託者のリスト } }
   trustedAnchors : TrustAnchorDict
 
   -- ウォレット固有のローカル時刻
@@ -202,6 +207,35 @@ theorem valid_wallet_identity_consistency :
   unfold isValidIdentity at h
   exact h
 
+/-- WalletからW3C.DIDを検証してValidDIDを取得
+
+    **新設計で使用:**
+    `ValidVC.getDelegator`や`ValidVC.getAuthorizedClaimIDs`などの新しい署名で使用する。
+
+    **検証方法:**
+    Wallet.identitiesまたはWallet.trustedAnchorsから該当するDIDを検索し、
+    一致するものがあればValidDIDを返す。
+
+    **パラメータ:**
+    - `wallet`: 検証に使用するWallet
+    - `w3cDID`: 検証するW3C.DID
+
+    **戻り値:**
+    - `Some validDID`: Wallet内に該当するValidDIDが見つかった場合
+    - `None`: 見つからなかった場合
+-/
+def validateDID (wallet : Wallet) (w3cDID : W3C.DID) : Option ValidDID :=
+  -- identitiesから検索
+  match wallet.identities.find? (fun identity => identity.did.w3cDID.value = w3cDID.value) with
+  | some identity => some identity.did
+  | none =>
+      -- trustedAnchorsから検索
+      wallet.trustedAnchors.findSome? fun (anchorDID, _info) =>
+        if anchorDID.w3cDID.value = w3cDID.value then
+          some anchorDID
+        else
+          none
+
 end Wallet
 
 
@@ -217,14 +251,14 @@ theorem list_length_pos_of_forall_mem {α : Type _} (l : List α) (P : α → Pr
 
     偽警官対策: Holderが検証者の正当性を確認するためのメッセージ。
     検証者は以下の情報を含むメッセージをHolderに送信する：
-    1. expectedTrustAnchor: Holderが期待しているトラストアンカーのDID
+    1. expectedTrustAnchor: Holderが信頼しているはずのDID
     2. verifierDID: 検証者自身のDID
-    3. verifierCredentials: トラストアンカーから発行された検証者VCのリスト
+    3. verifierCredentials: expectedTrustAnchorから発行された検証者VCのリスト
     4. nonce2: リプレイ攻撃防止用のナンス
     5. authProof: 検証者がverifierDIDの所有者であることを証明するZKP
 
     Holderは以下を検証する：
-    - expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに含まれる
+    - expectedTrustAnchorがHolderのWallet.trustedAnchorsに含まれる
     - verifierCredentialsに含まれるVerifierVCがexpectedTrustAnchorから発行されている
     - VerifierVCのsubjectがverifierDIDと一致する
     - authProofが有効である
@@ -245,7 +279,7 @@ namespace VerifierAuthMessage
     Holderの視点で、検証者認証メッセージが正当かどうかを検証する。
 
     検証項目:
-    1. expectedTrustAnchorがHolderのWallet内の信頼するトラストアンカーに存在する
+    1. expectedTrustAnchorがHolderのWallet.trustedAnchorsに存在する
     2. verifierCredentialsに少なくとも1つのVerifierVCが含まれる
     3. すべてのVerifierVCが有効である（UnknownVC.isValid）
     4. すべてのVerifierVCのissuerがexpectedTrustAnchorと一致する
@@ -253,7 +287,7 @@ namespace VerifierAuthMessage
     6. authProofが有効である（ZeroKnowledgeProof.isValid）
 -/
 def validateVerifierAuth (msg : VerifierAuthMessage) (holderWallet : Wallet) : Prop :=
-  -- 1. expectedTrustAnchorがValidDIDであり、Wallet内の信頼するトラストアンカーに存在する
+  -- 1. expectedTrustAnchorがValidDIDであり、このWallet.trustedAnchorsに存在する
   (∃ (validDID : ValidDID),
     msg.expectedTrustAnchor = UnknownDID.valid validDID ∧
     (TrustAnchorDict.lookup holderWallet.trustedAnchors validDID).isSome) ∧
@@ -276,14 +310,14 @@ namespace VerifierAuthMessage
 
 /-- Theorem: 正規の検証者は検証に成功する
 
-    トラストアンカーから正当に発行されたVerifierVCを持ち、
+    Holderが信頼するDIDから正当に発行されたVerifierVCを持ち、
     有効なZKPを提示する検証者は、Holderの検証を通過する。
 -/
 theorem authentic_verifier_passes :
   ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet) (validDID : ValidDID),
     -- 前提条件: expectedTrustAnchorがValidDIDである
     msg.expectedTrustAnchor = UnknownDID.valid validDID →
-    -- 前提条件: Holderがexpectedトラストアンカーを信頼している
+    -- 前提条件: HolderがこのDIDを信頼している（Wallet.trustedAnchorsに登録）
     (TrustAnchorDict.lookup holderWallet.trustedAnchors validDID).isSome →
     -- 前提条件: verifierCredentialsが空でない
     msg.verifierCredentials ≠ [] →
@@ -319,15 +353,15 @@ theorem authentic_verifier_passes :
 /-- Theorem: 偽警官（不正な検証者）は検証に失敗する
 
     以下のいずれかの条件を満たす不正な検証者は、Holderの検証を通過しない：
-    1. 信頼されていないトラストアンカーを提示する
+    1. Holderが信頼していないDIDを提示する
     2. 無効なVerifierVCを提示する
-    3. 他のトラストアンカーから発行されたVerifierVCを提示する
+    3. 他のDIDから発行されたVerifierVCを提示する
     4. 他のDIDのVerifierVCを提示する（なりすまし）
     5. 無効なZKPを提示する
 -/
 theorem fake_verifier_fails :
   ∀ (msg : VerifierAuthMessage) (holderWallet : Wallet),
-    -- 条件1: expectedTrustAnchorがInvalidDIDまたは信頼されていないトラストアンカー
+    -- 条件1: expectedTrustAnchorがInvalidDIDまたはHolderが信頼していないDID
     ((match msg.expectedTrustAnchor with
       | UnknownDID.valid validDID =>
           (TrustAnchorDict.lookup holderWallet.trustedAnchors validDID).isNone
@@ -398,17 +432,19 @@ structure Holder where
   -- 不変条件: 少なくとも1つのWalletを持つ
   wallets_nonempty : wallets ≠ []
 
-/-- Issuer: VCを発行する権限を持つHolder
+/-- Issuer: VCを発行するHolder
 
     **DID/VCモデルにおける役割:**
     - Issuerは固定的な役割ではなく、VC発行時の状況依存の役割
     - 任意のHolderがVC発行者になることができる
-    - トラストアンカーや受託者といった区別は、Wallet内のVCによって決まる
     - 型としてはHolderと同一（エイリアス）
 
-    **発行権限:**
-    - ClaimDefinitionVC（自己署名）またはauthorizedClaimIDsを持つVC（委譲）を持つことで発行権限を得る
-    - 一般人でも家族や友達にVCを発行できる（W3C VC仕様に準拠）
+    **発行と受け入れの関係:**
+    - 誰でもVCを発行できる（W3C VC仕様に準拠）
+    - 受け取る側が、発行者を信頼するか（Wallet.trustedAnchorsに登録）を決定
+    - 直接信頼: 発行者が受け取る側のWallet.trustedAnchorsに登録されている
+    - 委譲信頼: 発行者がauthorizedClaimIDsを持つVC（委譲証明）を提示し、
+      その委譲元が受け取る側のWallet.trustedAnchorsに登録されている
 -/
 abbrev Issuer := Holder
 
@@ -420,12 +456,12 @@ abbrev Issuer := Holder
     - 型としてはHolderと同一（エイリアス）
 
     **偽警官対策:**
-    - 検証者もWalletを持ち、トラストアンカーから発行されたVerifierVCを保持できる
+    - 検証者もWalletを持ち、信頼されるDIDから発行されたVerifierVCを保持できる
     - 検証時には、Holderに対してこれらのVerifierVCを提示し、自身が正当な検証者であることを証明できる
 
     **信頼ポリシー:**
-    - どのTrustAnchorを信頼するかは、Wallet.trustedAnchorsで管理
-    - 各Holderが独自の信頼ポリシーを持つ
+    - どのDIDを信頼するかは、各HolderがWallet.trustedAnchorsで自由に管理
+    - 各Holderが独自の信頼ポリシーを持つ（家族、友人、職場、政府など）
 -/
 abbrev Verifier := Holder
 

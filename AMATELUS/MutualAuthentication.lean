@@ -100,7 +100,7 @@ def validateVerifierMessage (msg : VerifierInitialMessage) (holderWallet : Walle
     この関数は以下の決定的なステップで構成される：
     1. Verifierメッセージの基本検証（決定的）
     2. 人間の判断を外部入力として受け取る（パラメータ）
-    3. 両方がtrueならZKPを生成（amatZKP.proverを使用）
+    3. 両方がtrueならZKPを生成（amtZKP.proverを使用）
 
     **人間の判断（humanApproval）:**
     - Wallet UIがクレーム情報を表示
@@ -130,8 +130,8 @@ noncomputable def holderRespond
     -- 関係式（実装依存）
     let relation : Relation := fun _ _ => true
 
-    -- amatZKP証明器を使ってProofを生成
-    let proof := amatZKP.prover witness publicInput relation
+    -- amtZKP証明器を使ってProofを生成
+    let proof := amtZKP.prover witness publicInput relation
 
     -- ProofをZeroKnowledgeProofに変換
     let holderZKPCore : HolderCredentialZKPCore := {
@@ -225,7 +225,7 @@ theorem trusted_and_approved_generates_response :
 
 /-- Theorem: 生成されたZKPは有効である
 
-    証明：amatZKP.completenessにより、amatZKP.proverが生成したProofは
+    証明：amtZKP.completenessにより、amtZKP.proverが生成したProofは
     検証に成功することが保証される
 -/
 theorem generated_zkp_is_valid :

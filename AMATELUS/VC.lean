@@ -14,8 +14,9 @@ abbrev ClaimTypeBasic := String
 
 /-- クレーム識別子を表す型
 
-    トラストアンカーが定義するクレームの一意な識別子。
-    例: "政府_1" (住民票), "政府_2" (運転免許証)
+    VC発行者が定義するクレームの一意な識別子。
+    誰でもクレームを定義でき、受け取る側がどの発行者を信頼するかを決定する。
+    例: "政府_1" (住民票), "政府_2" (運転免許証), "友人_1" (推薦状)
 -/
 structure ClaimID where
   value : String
@@ -25,8 +26,8 @@ structure ClaimID where
 
     **設計:**
     - `data`: 構造化データ（JSON等）
-    - `claimID`: クレームの識別子（トラストアンカーが定義）
-      - `Some claimID`: 特定のクレームタイプ（住民票、運転免許証等）
+    - `claimID`: クレームの識別子（発行者が定義）
+      - `Some claimID`: 特定のクレームタイプ（住民票、運転免許証、推薦状等）
       - `None`: クレームIDが指定されていない（汎用クレーム）
 -/
 structure Claims where
@@ -76,6 +77,164 @@ noncomputable def fromComponents
   { hash := hashForDID (auditSection.value ++ nationalID.value) }
 
 end AnonymousHashIdentifier
+
+-- ## Authorization Proof for Embedded Trust Delegation
+
+/-- 権限証明（Authorization Proof）
+
+    権限を与える側から受ける側への権限委譲を証明する構造。
+    この構造はW3C.CredentialSubject.claims内に埋め込まれる。
+
+    **新設計の利点:**
+    - Self-contained VC: 単一のVCで全ての検証が完結
+    - 別VCの提示不要: 権限証明がVC内に含まれる
+    - プライバシー向上: 受託者のWallet内容を公開不要
+    - 実世界適合: 紙の証明書に近い概念
+
+    **使用例:**
+    政府が自治体Aに住民票発行権限を委譲する場合：
+    - grantorDID: "did:amt:gov123..."
+    - granteeDID: "did:amt:city-a456..."
+    - authorizedClaimIDs: ["住民票", "戸籍謄本"]
+    - grantorSignature: "0x123abc..." （政府の署名）
+
+    住民が自治体Aから住民票VCを受け取る際、このVC内のclaims配列に：
+    1. 住民の属性情報（氏名、住所等）
+    2. この権限証明（政府→自治体Aの委譲証明）
+    が両方含まれる。
+
+    **重要な設計思想:**
+    誰でも他者に権限を委譲できるが、その委譲が有効かどうかは受け取る側が
+    grantorを自分のWallet.trustedAnchorsに登録しているかで決まる。
+-/
+structure AuthorizationProof where
+  /-- 権限を与える側のDID -/
+  grantorDID : ValidDID
+  /-- 権限を受ける側のDID -/
+  granteeDID : ValidDID
+  /-- 発行可能なクレームIDのリスト -/
+  authorizedClaimIDs : List ClaimID
+  /-- 権限を与える側の署名（この権限証明全体に対する署名） -/
+  grantorSignature : Signature
+  deriving Repr
+
+namespace AuthorizationProof
+
+/-- AuthorizationProofをW3C.DIDValue.mapに変換
+
+    W3C.CredentialSubject.claims内に埋め込むため、DIDValue形式に変換する。
+
+    **DIDValue構造:**
+    ```
+    DIDValue.map [
+      ("auth_proof", DIDValue.map [
+        ("grantor_did", DIDValue.string "did:amt:..."),
+        ("grantee_did", DIDValue.string "did:amt:..."),
+        ("authorized_claim_ids", DIDValue.list [
+          DIDValue.string "claim1",
+          DIDValue.string "claim2"
+        ]),
+        ("grantor_signature", DIDValue.string "0x...")
+      ])
+    ]
+    ```
+-/
+def toDIDValue (proof : AuthorizationProof) : W3C.DIDValue :=
+  W3C.DIDValue.map [
+    ("grantor_did", W3C.DIDValue.string proof.grantorDID.w3cDID.value),
+    ("grantee_did", W3C.DIDValue.string proof.granteeDID.w3cDID.value),
+    ("authorized_claim_ids", W3C.DIDValue.list
+      (proof.authorizedClaimIDs.map fun cid => W3C.DIDValue.string cid.value)),
+    ("grantor_signature", W3C.DIDValue.string (toString proof.grantorSignature.bytes))
+  ]
+
+/-- W3C.DIDValueからAuthorizationProofを抽出（検証付き）
+
+    **パラメータ:**
+    - `didValue`: 抽出元のDIDValue
+    - `validateDID`: DID文字列を検証する関数
+
+    **戻り値:**
+    - `Some proof`: 抽出・検証成功
+    - `None`: 構造不正またはDID検証失敗
+-/
+def fromDIDValue
+    (didValue : W3C.DIDValue)
+    (validateDID : W3C.DID → Option ValidDID) : Option AuthorizationProof :=
+  match didValue with
+  | W3C.DIDValue.map fields =>
+      -- 各フィールドを抽出
+      let grantorDIDStr := fields.lookup "grantor_did"
+      let granteeDIDStr := fields.lookup "grantee_did"
+      let authorizedClaimIDsVal := fields.lookup "authorized_claim_ids"
+      let grantorSigStr := fields.lookup "grantor_signature"
+
+      match grantorDIDStr, granteeDIDStr, authorizedClaimIDsVal, grantorSigStr with
+      | some (W3C.DIDValue.string grantorStr),
+        some (W3C.DIDValue.string granteeStr),
+        some (W3C.DIDValue.list claimIDVals),
+        some (W3C.DIDValue.string _sigStr) =>
+          -- DID検証
+          let grantorDIDOpt := validateDID { value := grantorStr }
+          let granteeDIDOpt := validateDID { value := granteeStr }
+
+          match grantorDIDOpt, granteeDIDOpt with
+          | some grantorDID, some granteeDID =>
+              -- ClaimIDリストを抽出
+              let claimIDs := claimIDVals.filterMap fun val =>
+                match val with
+                | W3C.DIDValue.string s => some { value := s : ClaimID }
+                | _ => none
+
+              -- AuthorizationProofを構築
+              -- TODO: sigStrを List UInt8 に変換する必要がある
+              some {
+                grantorDID := grantorDID,
+                granteeDID := granteeDID,
+                authorizedClaimIDs := claimIDs,
+                grantorSignature := { bytes := [] }  -- 仮実装
+              }
+          | _, _ => none
+      | _, _, _, _ => none
+  | _ => none
+
+/-- W3C.CredentialSubject.claimsから権限証明を抽出
+
+    claims配列から"auth_proof"キーを持つエントリを探し、
+    AuthorizationProofとして抽出する。
+
+    **パラメータ:**
+    - `claims`: W3C.CredentialSubject.claimsリスト
+    - `validateDID`: DID検証関数
+
+    **戻り値:**
+    - `Some proof`: 権限証明が見つかり、検証成功
+    - `None`: 権限証明が見つからないか、検証失敗
+-/
+def fromCredentialSubjectClaims
+    (claims : List (String × W3C.DIDValue))
+    (validateDID : W3C.DID → Option ValidDID) : Option AuthorizationProof :=
+  match claims.lookup "auth_proof" with
+  | none => none
+  | some authProofValue => fromDIDValue authProofValue validateDID
+
+/-- 権限証明の署名を検証
+
+    **検証内容:**
+    1. grantorSignatureがgrantorDIDの公開鍵で検証できるか
+    2. 署名対象データ: granteeDID || authorizedClaimIDs
+
+    **設計:**
+    実装では、Signature型が既に検証済みであることを前提とする。
+    （ValidVC構築時に署名検証済み）
+    この関数は形式的な検証ロジックのプレースホルダー。
+-/
+def verifyProofSignature (_proof : AuthorizationProof) : Bool :=
+  -- 実装: 署名検証ロジック
+  -- 現時点では、SignatureがValidVCに含まれる時点で検証済みと仮定
+  true
+
+end AuthorizationProof
 
 -- ## Helper Functions for W3C Issuer
 
@@ -243,7 +402,7 @@ def getSubjectDIDWithValidation
       CredentialSubject { id := Some "did:amt:123...", claims := [] }
 
     **注意:**
-    AMATELUSでは、claimsは各VC typeに分散して保存されます（AttributeVC.claims等）。
+    AMATELUSでは、claimsはValidVC.claimsフィールドに保存されます。
     W3C.CredentialSubject.claimsはAMATELUSでは使用しません。
 -/
 def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
@@ -253,97 +412,40 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
 
 -- ## Helper Functions for Context and VCType conversion
 
-/-- VCの基底構造
-
-    すべてのVC型が共通して持つフィールド。
--/
-structure VCBase where
-  -- W3C標準Credential構造
-  w3cCredential : W3C.Credential
-  -- 発行者DID（型レベルで正規のDIDを保証）
-  issuerDID : ValidDID
-  -- 主体DID（型レベルで正規のDIDを保証）
-  subjectDID : ValidDID
-  -- デジタル署名（型レベルで保証）
-  signature : Signature
-  -- 委任者DID（1階層制限の型システム保証）
-  -- None = トラストアンカー直接発行（0階層）
-  -- Some anchorDID = 委任者経由発行（1階層）
-  delegator : Option ValidDID
-  -- 発行可能なクレームIDのリスト（受託者認証用）
-  -- [] = クレームID制限なし（通常のVC）
-  -- [claimID1, claimID2, ...] = 指定されたクレームIDのみ発行可能（受託者認証）
-  authorizedClaimIDs : List ClaimID
-  deriving Repr
-
-/-- 属性情報VC
-
-    一般的な属性情報（年齢、住所、資格など）を証明するVC。
-    汎用的なクレームタイプで、様々な発行者が発行できる。
-
-    **1階層制限:**
-    - トラストアンカーが直接発行: `delegator: None`（0階層）
-    - 受託者経由で発行: `delegator: Some anchorDID`（1階層）
--/
-structure AttributeVC extends VCBase where
-  -- 属性固有のクレーム
-  claims : Claims                             -- 任意の構造化クレーム
-  deriving Repr
-
-/-- 検証者VC
-
-    トラストアンカーが検証者に発行する認証クレデンシャル。
-    検証者が特定のクレームタイプを検証する権限を持つことを証明する。
-
-    偽警官対策: Holderはこのような検証者VCの提示を要求することで、
-    正規の検証者であることを確認できる。
-
-    **1階層制限:**
-    - 通常、トラストアンカーが直接発行: `delegator: None`（0階層）
--/
-structure VerifierVC extends VCBase where
-  -- 検証者固有のクレーム
-  authorizedVerificationTypes : List ClaimTypeBasic  -- 検証可能なクレームタイプ
-  verificationScope : String                          -- 検証の範囲（地域、組織など）
-  deriving Repr
-
-/-- クレーム定義VC
-
-    トラストアンカーが自己署名で公開するクレーム定義。
-    クレームIDとその意味を定義する。
-
-    **使用例:**
-    政府（トラストアンカー）が以下のようなクレーム定義VCを公開：
-    - ClaimID: "政府_1", ClaimDescription: "住民票", Schema: {...}
-    - ClaimID: "政府_2", ClaimDescription: "運転免許証", Schema: {...}
-
-    検証者はトラストアンカーのDIDDocumentとともに、
-    これらのクレーム定義VCをダウンロードしてWalletに登録する。
-
-    **1階層制限:**
-    - トラストアンカーが自己署名で発行: `delegator: None`（0階層）
--/
-structure ClaimDefinitionVC extends VCBase where
-  -- クレーム定義固有のフィールド
-  claimID : ClaimID                     -- クレームの一意な識別子
-  claimDescription : String             -- クレームの説明（人間可読）
-  schema : String                       -- クレームのスキーマ（JSON Schema等）
-  deriving Repr
-
 /-- 正規の検証可能資格情報 (Valid Verifiable Credential)
 
     署名検証が成功するVC。
     暗号学的に正しく発行されたVCは、署名検証に成功する。
 
-    すべての具体的なVCタイプの和型。
-    AMATELUSプロトコルで扱われるVCは、以下のいずれかの型を持つ：
-    - AttributeVC: 一般属性情報
-    - VerifierVC: 検証者認証
-    - ClaimDefinitionVC: クレーム定義（トラストアンカーが自己署名で公開）
+    一般的な属性情報（年齢、住所、資格など）を証明するVC。
+    汎用的なクレームタイプで、様々な発行者が発行できる。
 
-    **受託者認証:**
-    任意のVC型で`authorizedClaimIDs: Some claimIDs`を設定することで、
-    受託者認証として機能する。これにより、すべてのVCタイプが受託可能となる。
+    **新設計の簡素化:**
+    - すべての属性情報（検証者資格含む）を単一の型で表現
+    - w3cCredential.credentialSubject.claimsに権限証明を埋め込むことで、受託者認証として機能
+    - 各Walletの所有者が、どのDIDを信頼するか（Wallet.trustedAnchorsに登録）を自由に決定
+
+    **新設計における1階層制限:**
+    - 直接発行: w3cCredential.credentialSubject.claimsに権限証明なし（0階層）
+      発行者が当該Walletで信頼されていれば受け入れ
+    - 委譲発行: w3cCredential.credentialSubject.claimsに権限証明あり（1階層）
+      - claims配列に ("auth_proof", AuthorizationProof) を含む
+      - AuthorizationProofのgrantorが当該Walletで信頼されていれば受け入れ
+
+    **使用例:**
+    自治体Aが政府から委譲された権限で住民票VCを発行する場合、
+    w3cCredential.credentialSubject.claimsには以下が含まれる：
+    ```
+    [
+      ("resident_info", DIDValue.map [住民の属性]),
+      ("auth_proof", AuthorizationProof {
+        grantorDID: 政府DID,
+        granteeDID: 自治体ADID,
+        authorizedClaimIDs: ["住民票"],
+        grantorSignature: 政府の署名
+      })
+    ]
+    ```
 
     **設計思想:**
     - VCの発行はIssuerの責任（署名は暗号ライブラリで生成）
@@ -355,53 +457,78 @@ structure ClaimDefinitionVC extends VCBase where
     - プロトコルの安全性証明が簡潔になる
     - Issuer実装の違いを抽象化（同じプロトコルで多様なIssuer実装が可能）
 
-    **VCBase継承:**
-    - 共通フィールド（w3cCredential, issuerDID, subjectDID, signature, delegator, authorizedClaimIDs）は
-      各VC型がVCBaseを継承することで保持される
-    - 各VC型は型固有のフィールドを追加で持つ
+    **フィールド構成:**
+    - w3cCredential: W3C標準Credential構造
+    - issuerDID: 発行者DID（型レベルで正規のDIDを保証）
+    - subjectDID: 主体DID（型レベルで正規のDIDを保証）
+    - signature: デジタル署名（型レベルで保証）
+    - claims: 属性固有のクレーム（任意の構造化クレーム）
+
+    **権限証明の埋め込み方法:**
+    委譲された権限で発行するVCでは、W3C.Credential.credentialSubject.claimsに以下を含める：
+    1. 主体の属性情報（本来のクレームデータ）
+    2. AuthorizationProof（権限を与える側→権限を受ける側の委譲証明）
+
+    これにより、VCが自己完結し、別VCの提示が不要になる。
 -/
-inductive ValidVC
-  | attributeVC : AttributeVC → ValidVC
-  | verifierVC : VerifierVC → ValidVC
-  | claimDefinitionVC : ClaimDefinitionVC → ValidVC
+structure ValidVC where
+  -- W3C標準Credential構造
+  w3cCredential : W3C.Credential
+  -- 発行者DID（型レベルで正規のDIDを保証）
+  issuerDID : ValidDID
+  -- 主体DID（型レベルで正規のDIDを保証）
+  subjectDID : ValidDID
+  -- デジタル署名（型レベルで保証）
+  signature : Signature
+  -- 属性固有のクレーム
+  claims : Claims
+  deriving Repr
 
 namespace ValidVC
 
-/-- ValidVCからW3C基本構造を取得 -/
-def getCore : ValidVC → W3C.Credential
-  | attributeVC vc => vc.w3cCredential
-  | verifierVC vc => vc.w3cCredential
-  | claimDefinitionVC vc => vc.w3cCredential
+/-- ValidVCから権限を与えた側のDIDを取得
 
-/-- ValidVCから発行者DIDを取得 -/
-def getIssuerDID : ValidVC → ValidDID
-  | attributeVC vc => vc.issuerDID
-  | verifierVC vc => vc.issuerDID
-  | claimDefinitionVC vc => vc.issuerDID
+    **新設計:**
+    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
+    grantorDID（権限を与えた側のDID）を返す。
 
-/-- ValidVCから主体DIDを取得 -/
-def getSubjectDID : ValidVC → ValidDID
-  | attributeVC vc => vc.subjectDID
-  | verifierVC vc => vc.subjectDID
-  | claimDefinitionVC vc => vc.subjectDID
+    **戻り値:**
+    - `Some grantorDID`: 権限証明が見つかった場合（委譲発行）
+    - `None`: 権限証明がない場合（直接発行）
 
-/-- ValidVCから署名を取得 -/
-def getSignature : ValidVC → Signature
-  | attributeVC vc => vc.signature
-  | verifierVC vc => vc.signature
-  | claimDefinitionVC vc => vc.signature
+    **パラメータ:**
+    - `validateDID`: DID検証関数（通常はWallet.identitiesで検証）
+-/
+def getDelegator (vc : ValidVC) (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
+  let w3cCred := vc.w3cCredential
+  match w3cCred.credentialSubject.head? with
+  | none => none
+  | some subject =>
+      match AuthorizationProof.fromCredentialSubjectClaims subject.claims validateDID with
+      | none => none
+      | some proof => some proof.grantorDID
 
-/-- ValidVCから委任者を取得 -/
-def getDelegator : ValidVC → Option ValidDID
-  | attributeVC vc => vc.delegator
-  | verifierVC vc => vc.delegator
-  | claimDefinitionVC vc => vc.delegator
+/-- ValidVCから発行可能なクレームIDのリストを取得
 
-/-- ValidVCから発行可能なクレームIDのリストを取得 -/
-def getAuthorizedClaimIDs : ValidVC → List ClaimID
-  | attributeVC vc => vc.authorizedClaimIDs
-  | verifierVC vc => vc.authorizedClaimIDs
-  | claimDefinitionVC vc => vc.authorizedClaimIDs
+    **新設計:**
+    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
+    authorizedClaimIDsを返す。
+
+    **戻り値:**
+    - 権限証明がある場合: authorizedClaimIDsのリスト
+    - 権限証明がない場合: 空リスト []
+
+    **パラメータ:**
+    - `validateDID`: DID検証関数
+-/
+def getAuthorizedClaimIDs (vc : ValidVC) (validateDID : W3C.DID → Option ValidDID) : List ClaimID :=
+  let w3cCred := vc.w3cCredential
+  match w3cCred.credentialSubject.head? with
+  | none => []
+  | some subject =>
+      match AuthorizationProof.fromCredentialSubjectClaims subject.claims validateDID with
+      | none => []
+      | some proof => proof.authorizedClaimIDs
 
 end ValidVC
 
@@ -451,20 +578,14 @@ inductive UnknownVC
 
 namespace UnknownVC
 
-/-- VCから基本構造を取得 -/
-def getCore : UnknownVC → W3C.Credential :=
-  fun vc => match vc with
-  | valid vvc => ValidVC.getCore vvc
-  | invalid ivc => ivc.w3cCredential
-
 /-- VCの発行者をDIDとして取得 -/
 def getIssuer (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => UnknownDID.valid (ValidVC.getIssuerDID vvc)
-  | invalid _ =>
+  | valid vvc => UnknownDID.valid vvc.issuerDID
+  | invalid ivc =>
       -- InvalidVCの場合、issuerがDID形式でなければダミーDIDを返す
       -- getIssuerDIDはOption ValidDIDを返すので、UnknownDID.validに変換
-      match getIssuerDID (getCore vc).issuer with
+      match getIssuerDID ivc.w3cCredential.issuer with
       | some did => UnknownDID.valid did
       | none => UnknownDID.invalid {
           w3cDID := { value := "invalid:unknown" },
@@ -474,26 +595,33 @@ def getIssuer (vc : UnknownVC) : UnknownDID :=
 /-- VCの主体をDIDとして取得 -/
 def getSubject (vc : UnknownVC) : UnknownDID :=
   match vc with
-  | valid vvc => UnknownDID.valid (ValidVC.getSubjectDID vvc)
-  | invalid _ =>
+  | valid vvc => UnknownDID.valid vvc.subjectDID
+  | invalid ivc =>
       -- InvalidVCの場合、subjectがDID形式でなければダミーDIDを返す
       -- getSubjectDIDはOption ValidDIDを返すので、UnknownDID.validに変換
-      match getSubjectDID (getCore vc).credentialSubject with
+      match getSubjectDID ivc.w3cCredential.credentialSubject with
       | some did => UnknownDID.valid did
       | none => UnknownDID.invalid {
           w3cDID := { value := "invalid:unknown" },
           reason := "Non-DID subject in InvalidVC"
         }
 
-/-- VCの委任者を取得（1階層制限の検証に使用）
+/-- VCの権限を与えた側のDIDを取得（1階層制限の検証に使用）
 
-    **設計:**
-    - ValidVC: ValidVC経由でdelegatorを取得（Option ValidDID）
-    - InvalidVC: 委任者情報がないため、noneを返す
+    **新設計:**
+    w3cCredential.credentialSubject.claimsから権限証明を抽出し、
+    grantorDID（権限を与えた側のDID）を返す。
+
+    **戻り値:**
+    - `Some grantorDID`: 権限証明が見つかった場合（委譲発行）
+    - `None`: 権限証明がない場合（直接発行）、またはInvalidVC
+
+    **パラメータ:**
+    - `validateDID`: DID検証関数
 -/
-def getDelegator (vc : UnknownVC) : Option ValidDID :=
+def getDelegator (vc : UnknownVC) (validateDID : W3C.DID → Option ValidDID) : Option ValidDID :=
   match vc with
-  | valid vvc => ValidVC.getDelegator vvc
+  | valid vvc => ValidVC.getDelegator vvc validateDID
   | invalid _ => none  -- InvalidVCは委任者情報を持たない
 
 /-- VC検証関数（定義として実装）

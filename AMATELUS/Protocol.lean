@@ -56,7 +56,7 @@ def Privacy (state : ProtocolState) : Prop :=
     -- 異なるDIDを関連付ける（名寄せする）には、
     -- ハッシュ関数の衝突を発見する必要がある
     -- これは量子計算機でも128ビットの計算量が必要
-    amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits
+    amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits
 
 /-- プロトコルの監査可能性 -/
 def Auditability (state : ProtocolState) : Prop :=
@@ -153,8 +153,8 @@ theorem did_generation_preserves_security :
     -- 新しいDIDの追加は、既存のDID間の独立性に影響しない
     -- did_collision_quantum_secureにより、新しいDIDが既存のDIDと衝突する確率は無視できる
     -- したがって、すべてのDIDペアは独立性を保つ
-    -- この証明は暗号学的安全性（amatHashFunction.quantum_secure）に依存する
-    exact amatHashFunction.quantum_secure
+    -- この証明は暗号学的安全性（amtHashFunction.quantum_secure）に依存する
+    exact amtHashFunction.quantum_secure
   · -- Auditability: 認可された監査が可能（DID追加は影響しない）
     unfold Auditability at h_inv ⊢
     intro ahi h_ahi
@@ -230,7 +230,7 @@ theorem vc_issuance_preserves_security :
     **証明の構造:**
     1. ZKP生成は既存のDID、VC、AHIに影響を与えない（状態の独立性）
     2. ValidTransitionにより、追加されるZKPは暗号学的に有効（検証に成功する）
-    3. amatZKP_zeroKnowledge_quantum_secureにより、証明の識別は量子計算機でも
+    3. amtZKP_zeroKnowledge_quantum_secureにより、証明の識別は量子計算機でも
        2^128の計算量が必要であり、零知識性が保証される
     4. したがって、ZKP生成は既存のIntegrity、Privacy、Auditabilityを保持する
 
@@ -262,7 +262,7 @@ theorem zkp_generation_preserves_security :
     -- s₂.dids = s₁.dids より、DIDリストは変更されない
     rw [h_valid.1] at h_did₁ h_did₂
     -- 新しいZKPの追加は、零知識性により既存のPrivacyに影響しない
-    -- amatZKP_zeroKnowledge_quantum_secureにより、証明の識別は困難
+    -- amtZKP_zeroKnowledge_quantum_secureにより、証明の識別は困難
     -- したがって、ZKPから秘密情報（DID間の関連性）を抽出することは困難
     exact h_inv.2.1 did₁ h_did₁ did₂ h_did₂ h_neq
   · -- Auditability: 認可された監査が可能（AHIリスト不変）

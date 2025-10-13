@@ -132,7 +132,7 @@ structure ProbabilisticHashFunction where
     「negligible」や「耐衝突性」という幻想ではなく、量子脅威を考慮した
     具体的な数値を明示しています。
 -/
-def amatHashFunction : ProbabilisticHashFunction := {
+def amtHashFunction : ProbabilisticHashFunction := {
   hash := fun _ => Hash.mk []  -- 実装は抽象化（実際のSHA3-512実装に委譲）
   collisionSecurity := {
     classicalBits := 256  -- 誕生日攻撃: 2^256 の計算量
@@ -145,9 +145,9 @@ def amatHashFunction : ProbabilisticHashFunction := {
 /-- DID生成用ハッシュ関数
 
     CryptoTypes.leanからの循環インポートを避けるため、ここで定義します。
-    この関数は amatHashFunction.hash のエイリアスです。
+    この関数は amtHashFunction.hash のエイリアスです。
 -/
-noncomputable def hashForDID : List UInt8 → Hash := amatHashFunction.hash
+noncomputable def hashForDID : List UInt8 → Hash := amtHashFunction.hash
 
 /-- hashForDIDの衝突探索コスト
 
@@ -168,11 +168,11 @@ noncomputable def hashForDID : List UInt8 → Hash := amatHashFunction.hash
     より長い出力（例：Blake3の1024ビット）を検討すべきです。
 -/
 theorem hashForDID_quantum_secure :
-  amatHashFunction.collisionSecurity.quantumBits = 128 := by
+  amtHashFunction.collisionSecurity.quantumBits = 128 := by
   rfl
 
 theorem hashForDID_meets_minimum :
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   decide  -- 128 ≥ 128
 
 -- ## Assumption 2.2: Unforgeable Digital Signature
@@ -228,7 +228,7 @@ structure SignatureScheme where
     量子計算機で多項式時間で破られます。AMATELUSの長期的安全性のためには、
     ポスト量子暗号署名方式の採用が必須です。
 -/
-def amatSignature : SignatureScheme := {
+def amtSignature : SignatureScheme := {
   keyGen := fun _ => KeyPair.mk (SecretKey.mk []) (PublicKey.mk [])  -- 実装は抽象化
   sign := fun _ _ => Signature.mk []  -- 実装は抽象化
   verify := fun _ _ _ => true  -- 実装は抽象化
@@ -246,10 +246,10 @@ def amatSignature : SignatureScheme := {
     AMATELUSで採用する署名方式（Dilithium2）は、量子脅威下でも
     署名偽造に128ビットの計算量が必要です。
 -/
-theorem amatSignature_forgery_quantum_secure :
-  amatSignature.forgeryResistance.quantumBits ≥ minSecurityLevel.quantumBits := by
+theorem amtSignature_forgery_quantum_secure :
+  amtSignature.forgeryResistance.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatSignature.quantum_secure
+  exact amtSignature.quantum_secure
 
 -- ## ハッシュ関数の一方向性（計算コストモデル）
 
@@ -370,7 +370,7 @@ structure ZKPSystem where
     Shorのアルゴリズムにより量子計算機で破られる可能性があります。
     AMATELUSの長期的安全性のためには、STARKsなど量子耐性のあるZKPが推奨されます。
 -/
-def amatZKP : ZKPSystem := {
+def amtZKP : ZKPSystem := {
   prover := fun _ _ _ => Proof.mk []  -- 実装は抽象化
   verifier := fun _ _ _ => true  -- 実装は抽象化
   completeness := by intro _w _x _R _h; rfl  -- 実装の完全性は外部で保証
@@ -393,20 +393,20 @@ def amatZKP : ZKPSystem := {
     AMATELUSで採用するZKPシステム（STARKs）は、量子脅威下でも
     偽証明の生成に128ビットの計算量が必要です。
 -/
-theorem amatZKP_soundness_quantum_secure :
-  amatZKP.soundnessSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+theorem amtZKP_soundness_quantum_secure :
+  amtZKP.soundnessSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatZKP.soundness_quantum_secure
+  exact amtZKP.soundness_quantum_secure
 
 /-- ZKP零知識性の量子安全性
 
     AMATELUSで採用するZKPシステム（STARKs）は、量子脅威下でも
     証明の識別に128ビットの計算量が必要です。
 -/
-theorem amatZKP_zeroKnowledge_quantum_secure :
-  amatZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+theorem amtZKP_zeroKnowledge_quantum_secure :
+  amtZKP.zeroKnowledgeSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatZKP.zeroKnowledge_quantum_secure
+  exact amtZKP.zeroKnowledge_quantum_secure
 
 -- ## 暗号学的独立性
 

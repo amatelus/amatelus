@@ -30,16 +30,16 @@ import AMATELUS.SecurityAssumptions
     - 結論: 安全（128 ≥ 128）
 
     **証明:**
-    SecurityAssumptions.amatHashFunction.quantum_secureにより、
+    SecurityAssumptions.amtHashFunction.quantum_secureにより、
     SHA3-512の衝突探索の量子コストは128ビットであり、
     NIST最小要件128ビットを満たす。
     DID.fromValidDocument は内部でこのハッシュ関数を使用しているため、
     異なるValidDIDDocumentから同じDIDが生成される確率は無視できるほど小さい。
 -/
 theorem did_collision_quantum_secure :
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatHashFunction.quantum_secure
+  exact amtHashFunction.quantum_secure
 
 /-- DID検証の正当性
 
@@ -107,13 +107,13 @@ theorem did_verification_completeness :
 theorem vc_signature_completeness :
   ∀ (_vc : UnknownVC) (sk : SecretKey) (pk : PublicKey),
     let _kp := KeyPair.mk sk pk
-    let σ := amatSignature.sign sk []  -- VCのバイト表現
+    let σ := amtSignature.sign sk []  -- VCのバイト表現
     -- Note: UnknownVCはinductive typeなので、with構文は使用できない
-    amatSignature.verify pk [] σ = true := by
+    amtSignature.verify pk [] σ = true := by
   intro _vc sk pk
   -- SignatureScheme の completeness プロパティから直接導かれる
   let kp := KeyPair.mk sk pk
-  exact amatSignature.completeness kp []
+  exact amtSignature.completeness kp []
 
 -- ## Theorem 3.4: VC Signature Soundness
 
@@ -127,13 +127,13 @@ theorem vc_signature_completeness :
     - 結論: 安全（128 ≥ 128）
 
     **証明:**
-    SecurityAssumptions.amatSignature_forgery_quantum_secureにより、
+    SecurityAssumptions.amtSignature_forgery_quantum_secureにより、
     署名偽造の量子コストは128ビットであり、NIST最小要件128ビットを満たす。
 -/
 theorem vc_signature_forgery_quantum_secure :
-  amatSignature.forgeryResistance.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtSignature.forgeryResistance.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatSignature_forgery_quantum_secure
+  exact amtSignature_forgery_quantum_secure
 
 -- ## Theorem 3.5: Revocation-Independent Protocol Safety
 
@@ -142,7 +142,7 @@ noncomputable def cryptographic_verify (vc : UnknownVC) (issuerPK : PublicKey) :
   match vc with
   | UnknownVC.valid vvc =>
       -- ValidVCの場合: 署名を検証
-      amatSignature.verify issuerPK [] (ValidVC.getSignature vvc)
+      amtSignature.verify issuerPK [] vvc.signature
   | UnknownVC.invalid _ =>
       -- InvalidVCの場合: 署名がないため検証失敗
       false
@@ -214,9 +214,9 @@ theorem core_safety_independence :
     量子計算機でも2^128の試行が必要という具体的な数値により保証されます。
 -/
 theorem hash_uniqueness_quantum_secure :
-  amatHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
+  amtHashFunction.collisionSecurity.quantumBits ≥ minSecurityLevel.quantumBits := by
   -- 128 ≥ 128
-  exact amatHashFunction.quantum_secure
+  exact amtHashFunction.quantum_secure
 
 -- ## DID所有権の証明
 
@@ -231,7 +231,7 @@ def proves_ownership (sk : SecretKey) (_did : UnknownDID) (vdoc : ValidDIDDocume
     extractPublicKey vdoc.w3cDoc = some pk ∧
     -- 秘密鍵で署名できることを示す
     ∀ (msg : List UInt8),
-      amatSignature.verify pk msg (amatSignature.sign sk msg) = true
+      amtSignature.verify pk msg (amtSignature.sign sk msg) = true
 
 theorem did_ownership_proof :
   ∀ (sk : SecretKey) (pk : PublicKey) (vdoc : ValidDIDDocument),
@@ -242,4 +242,4 @@ theorem did_ownership_proof :
   refine ⟨pk, h, ?_⟩
   intro msg
   let kp := KeyPair.mk sk pk
-  exact amatSignature.completeness kp msg
+  exact amtSignature.completeness kp msg

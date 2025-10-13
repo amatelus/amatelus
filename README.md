@@ -72,13 +72,31 @@ VC := {
   subject: DID_subject,
   claims: Claims,
   signature: σ,
-  credentialStatus: RevocationInfo,
-  delegator: Option DID_anchor
+  credentialStatus: RevocationInfo
 }
 ```
-ここで、`delegator`は1階層制限のための委任者識別子である：
-- `None`: トラストアンカーが直接発行（0階層）
-- `Some DID_anchor`: トラストアンカー経由で委任者が発行（1階層）
+
+**新設計における権限委譲の表現:**
+AMATELUSでは、権限委譲情報をVCの専用フィールドに持たせず、W3C標準に準拠したclaims内に埋め込む：
+
+```
+AuthorizationProof := {
+  grantorDID: DID_grantor,       -- 権限を与える側のDID
+  granteeDID: DID_trustee,       -- 権限を受ける側のDID
+  authorizedClaimIDs: List ClaimID,  -- 発行可能なクレームID
+  grantorSignature: σ_grantor    -- 権限を与える側の署名
+}
+```
+
+受託者が発行するVCでは、`vc.claims`に以下を含める：
+1. 主体の属性情報（本来のクレームデータ）
+2. AuthorizationProof（権限を与える側→権限を受ける側の委譲証明）
+
+これにより、VCが自己完結し、別VCの提示が不要になる。
+
+**階層の判定:**
+- 0階層（直接発行）: `vc.claims`に`AuthorizationProof`が含まれない
+- 1階層（委譲発行）: `vc.claims`に`AuthorizationProof`が含まれる
 
 **Definition 2.3 (Zero-Knowledge Proof with Mutual Nonce)**
 ```
@@ -258,19 +276,44 @@ AMATELUSプロトコルの安全性の核心は以下の要素から構成され
 
 ### 4.1 信頼関係の定義と1階層制限
 
-**Definition 4.1 (Trust Relation)**
+**Definition 4.1 (Trust Anchor Selection and Authority)**
+AMATELUSでは、各Walletの所有者が独立して信頼するDIDを選択する：
 ```
-Trust(A, B) := ∃ VC: Issuer(VC) = A ∧ Subject(VC) = B ∧ Valid(VC)
+IsTrustedBy(DID, Wallet) := DID ∈ Wallet.trustedAnchors
+
+TrustAuthority(DID, Wallet) := IsTrustedBy(DID, Wallet) ⟹
+  Wallet.ownerが DID 発行のすべてのClaimIDを信頼する
 ```
 
-**Definition 4.2 (Trust Chain Depth Limit)**
+**重要な設計思想:**
+- **自己主権的選択**: 各個人が自分のWalletで、誰を信頼するか（trustedAnchorsに登録するか）を自由に決定
+- **相対的な関係**: 「トラストアンカー」は絶対的な役割ではなく、特定のWalletにとって信頼されているDIDという相対的な関係
+- **誰でもなれる**: 家族、友人、職場の同僚、地域コミュニティ、企業、政府など、誰でも他人から信頼を選ばれる可能性がある
+- **双方向の選択**: 自分で「トラストアンカーになる」と宣言するのではなく、他人が自分をtrustedAnchorsに登録することで初めて「その人にとって信頼される存在」になる
+- **コンテキスト多様性**: 家族内では全員が相互に信頼し合う、友人同士で信頼し合う、職場内で上司を信頼する、など様々なコンテキストが存在
+
+**Definition 4.2 (Trust Relation)**
+```
+Trust(A, B) := ∃ VC: Issuer(VC) = A ∧ Subject(VC) = B ∧ Valid(VC)
+
+TrusteeTrust(Anchor, Trustee, ClaimIDs) :=
+  ∃ VC: Issuer(VC) = Anchor ∧
+        Subject(VC) = Trustee ∧
+        AuthorizationProof(VC, Anchor, Trustee, ClaimIDs)
+```
+
+**Definition 4.3 (Trust Chain Depth Limit)**
 AMATELUSプロトコルでは、信頼チェーンの深さを**1階層のみ**に制限する：
 ```
 MaxChainDepth := 1
 
-DirectTrust(A, B) := Trust(A, B) ∧ (A is TrustAnchor)
+DirectTrust(A, B, Wallet) := Trust(A, B) ∧ IsTrustedBy(A, Wallet)
 
-ValidTrustRelation(A, B) := DirectTrust(A, B)
+DelegatedTrust(A, B, ClaimIDs, Wallet) :=
+  IsTrustedBy(A, Wallet) ∧ TrusteeTrust(A, B, ClaimIDs)
+
+ValidTrustRelation(A, B, Wallet) := DirectTrust(A, B, Wallet) ∨
+  (∃ ClaimIDs: DelegatedTrust(A, B, ClaimIDs, Wallet))
 ```
 
 **設計根拠:**
@@ -292,9 +335,13 @@ AMATELUSプロトコルは、1階層のVCのみを検証する：
 ∀ wallet: Wallet, vc: VerifiableCredential, issuerDID: DID,
   VerifiableCredential.isValid vc →
   VerifiableCredential.getIssuer vc = issuerDID →
-  -- AMATELUSプロトコルが受け入れる場合、発行者は1階層の信頼関係にある
+  -- AMATELUSプロトコルが受け入れる場合、以下のいずれかが成立：
+  -- 1. 発行者が当該Walletで信頼されている（0階層）
   (TrustAnchorDict.lookup wallet.trustedAnchors issuerDID).isSome ∨
-  (∃ anchorDID, issuerDID ∈ (lookup wallet.trustedAnchors anchorDID).trustees)
+  -- 2. VCにAuthorizationProofが含まれ、そのgrantorが当該Walletで信頼されている（1階層）
+  (∃ authProof ∈ vc.claims:
+    authProof.granteeDID = issuerDID ∧
+    (TrustAnchorDict.lookup wallet.trustedAnchors authProof.grantorDID).isSome)
 ```
 
 **重要な設計思想:**
@@ -315,12 +362,22 @@ AMATELUSプロトコルは、1階層のVCのみを検証する：
 
 **検証手順:**
 ```
-verify_trust(issuer: DID, subject: DID, vc: VerifiableCredential):
-  1. issuer がトラストアンカーであることを確認
+verify_trust(issuer: DID, subject: DID, vc: VerifiableCredential, wallet: Wallet):
+  1. vc の暗号学的署名を検証
   2. vc.issuer = issuer であることを確認
   3. vc.subject = subject であることを確認
-  4. vc の暗号学的署名を検証
-  5. チェーン深さ = 1 であることを確認（推移的信頼を拒否）
+  4. 信頼関係を確認:
+     a. issuer ∈ wallet.trustedAnchors の場合 → 受け入れ（0階層）
+        ※このWalletの所有者が、issuerを信頼対象として登録している
+     b. そうでない場合:
+        - vc.claims から AuthorizationProof を抽出
+        - authProof.granteeDID = issuer であることを確認
+        - authProof.grantorDID ∈ wallet.trustedAnchors であることを確認
+        ※このWalletの所有者が、grantorを信頼対象として登録している
+        - authProof.grantorSignature を検証
+        - subject の claimID が authProof.authorizedClaimIDs に含まれることを確認
+        → すべて満たせば受け入れ（1階層）
+  5. チェーン深さ ≤ 1 であることを確認（推移的信頼を拒否）
 ```
 
 **非推移性の保証:**
@@ -329,7 +386,16 @@ verify_trust(issuer: DID, subject: DID, vc: VerifiableCredential):
 ```
 
 この非推移性により、B（受託者）がC（第三者）に権限を再委譲しても、
-A（トラストアンカー）からC（第三者）への信頼は**成立しない**。
+あなたがA（政府）を信頼していることが、C（第三者）への信頼に**推移しない**。
+
+具体的には：
+- A（政府）をあなたのWalletで信頼対象として登録
+- A（政府）がB（自治体）に権限を委譲（AuthorizationProofを発行）
+- BがC（民間企業）に権限を委譲し、AuthorizationProofを含むVCを発行
+- しかし、AMATELUSプロトコルは、CのAuthorizationProofを検証する際：
+  - authProof.grantorDID（= B）が wallet.trustedAnchors に含まれるか確認
+  - あなたはBを信頼対象として登録していないため、検証失敗
+  - したがって、CのVCは受け入れられない（2階層VCの拒否）
 
 ### 4.3 VC再発行の設計考慮事項
 
@@ -339,26 +405,28 @@ A（トラストアンカー）からC（第三者）への信頼は**成立し�
 
 1階層制限は、受託者による**新たな受託者の認定**を防ぎますが、受託者によるエンドユーザーへのVC再発行は許可されます。これは設計上の制限ではなく、VC発行の本来の機能です。
 
-例：政府（トラストアンカー）→ 自治体（受託者）→ 住民（エンドユーザー）
+例：政府→自治体→住民（エンドユーザー）のケース
+- 住民のWalletで政府を信頼対象として登録
+- 政府が自治体に権限を委譲
 - 自治体は住民のスマホ買い替え時に新しいDIDへ住民票VCを再発行できる
 - これは1階層制限に違反しない（自治体は新たな受託者を認定していない）
 
 **発行者侵害のリスク（すべての階層で共通）:**
 
-VC発行者（トラストアンカーまたは受託者）が侵害された場合のリスクは、階層数に関わらず存在します：
+VC発行者が侵害された場合のリスクは、階層数に関わらず存在します：
 1. 不正なVC再発行
 2. 虚偽の同一性証明VCの発行
 
 **1階層制限による影響範囲の局所化:**
-- **0階層**（政府のみ）: 政府侵害 → 全住民に影響（単一障害点）
-- **1階層**（政府→自治体）: 自治体A侵害 → 自治体A管轄の住民のみに影響（局所化）
+- **0階層**（直接発行のみ）: 発行者侵害 → その発行者を信頼する全ユーザーに影響
+- **1階層**（委譲を許可）: 受託者A侵害 → 受託者A管轄のユーザーのみに影響（局所化）
 - **無制限階層**: 末端受託者侵害 → 不正な再委譲により影響が連鎖的に拡大
 
 **対策（すべての階層で共通）:**
 - 再発行には元のVCの失効が必須
 - 同一性証明VCには特別な検証要件（複数の証拠提出）
 - すべての再発行を監査ログに記録
-- 重要なVCはトラストアンカーのみが再発行可能とするポリシー
+- 重要なVCは直接信頼するDIDのみが再発行可能とするポリシー設定
 
 ## 5. プライバシー保護機構の完全性証明
 

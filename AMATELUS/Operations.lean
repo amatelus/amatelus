@@ -29,7 +29,7 @@ def storeCredential
     (wallet : Wallet)
     (vc : ValidVC)
     (holderDID : ValidDID)
-    (_h_subject : ValidVC.getSubjectDID vc = holderDID)
+    (_h_subject : vc.subjectDID = holderDID)
     (_h_has_did : Wallet.hasDID wallet holderDID) : Wallet :=
   { wallet with
     credentials := vc :: wallet.credentials }
@@ -87,12 +87,12 @@ def zkpRelation : Relation :=
 
 /-- ProofからZeroKnowledgeProofを構築
 
-    amatZKP.proverが生成したProofを、AMATELUSのZeroKnowledgeProof型に変換します。
+    amtZKP.proverが生成したProofを、AMATELUSのZeroKnowledgeProof型に変換します。
     生成されたProofは暗号学的に有効であるため、valid ZKPとして構築されます。
 -/
 noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : UnknownZKP :=
   -- ValidZKPとして構築
-  -- amatZKP.completenessにより、このZKPは検証に成功することが保証される
+  -- amtZKP.completenessにより、このZKPは検証に成功することが保証される
   let holderZKP : HolderCredentialZKPCore := {
     core := {
       proof := proof
@@ -111,14 +111,14 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : UnknownZ
 /-- 無限のZKP辞書（暗号学的証明器による実装）
 
     この関数は、すべての可能な材料に対してZKPを返します。
-    理想化モデル（ランダムオラクル）から暗号学的証明器（amatZKP）への移行。
+    理想化モデル（ランダムオラクル）から暗号学的証明器（amtZKP）への移行。
 
     **変更点:**
-    - amatZKP.proverを使用してProofを生成
-    - 生成されたProofはamatZKP.completenessにより有効であることが保証される
+    - amtZKP.proverを使用してProofを生成
+    - 生成されたProofはamtZKP.completenessにより有効であることが保証される
 
     **暗号学的安全性:**
-    - SecurityAssumptions.amatZKP（STARKs）に依存
+    - SecurityAssumptions.amtZKP（STARKs）に依存
     - 量子安全性: 128ビット（Grover適用後）
     - NIST最小要件: 128ビット
     - 結論: ポスト量子暗号時代でも安全
@@ -127,23 +127,23 @@ noncomputable def universalZKPOracle (material : ZKPMaterial) : UnknownZKP :=
   -- 材料から証人と公開入力を抽出
   let witness := zkpMaterialToWitness material
   let publicInput := zkpMaterialToPublicInput material
-  -- amatZKP証明器を使ってProofを生成
-  let proof := amatZKP.prover witness publicInput zkpRelation
+  -- amtZKP証明器を使ってProofを生成
+  let proof := amtZKP.prover witness publicInput zkpRelation
   -- ProofをZeroKnowledgeProofに変換
   proofToZKP proof material
 
 /-- 定理: オラクルが返すZKPは常に有効である
 
     **証明の構造:**
-    1. universalZKPOracleはamatZKP.proverを使ってProofを生成
-    2. amatZKP.completenessにより、Proofは検証に成功する
+    1. universalZKPOracleはamtZKP.proverを使ってProofを生成
+    2. amtZKP.completenessにより、Proofは検証に成功する
     3. proofToZKPはProofをvalid ZKPとして構築
     4. ZeroKnowledgeProof.valid_zkp_passesにより、valid ZKPは検証に成功
 
     **暗号学的仮定への依存:**
-    - amatZKPの性質（completeness）から導出される定理
-    - SecurityAssumptions.amatZKP_soundness_quantum_secureに依存
-    - SecurityAssumptions.amatZKP_zeroKnowledge_quantum_secureに依存
+    - amtZKPの性質（completeness）から導出される定理
+    - SecurityAssumptions.amtZKP_soundness_quantum_secureに依存
+    - SecurityAssumptions.amtZKP_zeroKnowledge_quantum_secureに依存
 -/
 theorem universalZKPOracle_isValid :
   ∀ (material : ZKPMaterial) (relation : Relation),
@@ -209,13 +209,13 @@ end Holder
 
 /-- VCのコンテキストを生成（W3C標準）
 -/
-def standardVCContext : W3C.Context :=
+def w3cStandardVCContext : W3C.Context :=
   { value := "https://www.w3.org/2018/credentials/v1" }
 
-/-- VCのタイプを生成（標準的な属性VC）
+/-- VCのタイプを生成（AMTの標準的なVC）
 -/
-def standardAttributeVCType : W3C.CredentialType :=
-  { value := "UnknownVC,AttributeCredential" }
+def amtStandardVCType : W3C.CredentialType :=
+  { value := "AMTStandardCredential" }
 
 /-- VCを発行する関数
 
@@ -230,8 +230,8 @@ def standardAttributeVCType : W3C.CredentialType :=
     3. 検証成功 → Issuerは ValidDID を取得
 
     **実装:**
-    1. Claimsに署名を生成（amatSignature.sign）
-    2. AttributeVCとして構築
+    1. Claimsに署名を生成（amtSignature.sign）
+    2. ValidVCとして構築
     3. UnknownVC.validとして返す
 
     **W3C VC仕様との関係:**
@@ -246,37 +246,38 @@ noncomputable def issueCredential
   -- Claimsをバイト列にシリアライズ（簡略化）
   let claimsBytes := claims.data.toUTF8.data.toList
   -- 秘密鍵で署名
-  let signature := amatSignature.sign issuerSecretKey claimsBytes
+  let signature := amtSignature.sign issuerSecretKey claimsBytes
   -- W3C基本構造を構築
   let w3cCore : W3C.Credential := {
-    context := [standardVCContext]
-    type_ := [standardAttributeVCType]
+    context := [w3cStandardVCContext]
+    type_ := [amtStandardVCType]
     issuer := didToW3CIssuer (UnknownDID.valid issuerDID)
     credentialSubject := [didToCredentialSubject (UnknownDID.valid subjectDID)]
     credentialStatus := none
   }
-  -- AttributeVCとして構築（VCBaseフィールドを含む）
-  let attributeVC : AttributeVC := {
-    -- VCBase fields
+  -- ValidVCとして構築
+  -- 注: 新設計では、権限証明はw3cCore.credentialSubject.claimsに埋め込まれる
+  -- 直接信頼される発行者の場合は権限証明なし
+  -- 委譲された権限で発行する場合は、別の関数（issueCredentialWithAuthProof）で権限証明を埋め込む
+  let validVC : ValidVC := {
+    -- W3C標準構造
     w3cCredential := w3cCore
+    -- 発行者と主体のDID（型レベルで検証済み）
     issuerDID := issuerDID
     subjectDID := subjectDID
+    -- 暗号学的署名
     signature := signature
-    delegator := none  -- 委任なし（トラストアンカー直接発行）
-    authorizedClaimIDs := []  -- クレームID制限なし（通常のVC）
-    -- AttributeVC specific fields
+    -- 属性クレーム
     claims := claims
   }
-  -- ValidVCとして構築
-  let validVC : ValidVC := ValidVC.attributeVC attributeVC
   UnknownVC.valid validVC
 
 /-- 定理: ValidDIDで発行されたVCは暗号学的に有効である
 
     **証明の構造:**
     1. issueCredentialはValidDIDを受け取る
-    2. amatSignature.signを使って署名を生成
-    3. amatSignature.completenessにより、署名は検証に成功
+    2. amtSignature.signを使って署名を生成
+    3. amtSignature.completenessにより、署名は検証に成功
     4. ValidVCとして構築されるため、UnknownVC.isValidが成立
 
     **AMATELUSの設計:**
@@ -305,10 +306,10 @@ theorem issued_credential_is_cryptographically_valid :
 
 namespace Verifier
 
-/-- TrustAnchorDictからDIDを受託者として持つトラストアンカーを探す
+/-- TrustAnchorDictからDIDを受託者として持つ信頼対象DIDを探す
 
     **戻り値:**
-    - `Option ValidDID`: トラストアンカーは型レベルで検証済みのValidDIDとして管理されるため、
+    - `Option ValidDID`: 信頼対象DIDは型レベルで検証済みのValidDIDとして管理されるため、
       ValidDIDを直接返すことで型安全性が向上する
 -/
 def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : UnknownDID) :
@@ -321,10 +322,10 @@ def findTrustAnchorForTrustee (dict : TrustAnchorDict) (trusteeDID : UnknownDID)
     この関数は、TrustAnchorDictを使って信頼チェーンを辿ります。
 
     検証ロジック：
-    1. 検証したいDIDがトラストルートリストに含まれていれば、信頼できる
+    1. 検証したいDIDが信頼対象リストに含まれていれば、信頼できる
     2. 深さが0になったら、信頼できない（チェーンが長すぎる）
-    3. そうでなければ、TrustAnchorDictから、このDIDを受託者として持つトラストアンカーを探す
-    4. そのトラストアンカーが信頼できるか再帰的にチェック（深さを1減らす）
+    3. そうでなければ、TrustAnchorDictから、このDIDを受託者として持つ信頼対象DIDを探す
+    4. その信頼対象DIDが信頼できるか再帰的にチェック（深さを1減らす）
 -/
 def checkTrustChainRecursive
     (dict : TrustAnchorDict)
@@ -336,13 +337,13 @@ def checkTrustChainRecursive
       -- 深さ制限に達した場合、ルートリストに含まれているかのみチェック
       issuerDID ∈ trustedRoots
   | depth' + 1 =>
-      -- トラストルートに含まれているか確認
+      -- 信頼対象リストに含まれているか確認
       (issuerDID ∈ trustedRoots) ∨
-      -- または、このDIDを受託者として持つトラストアンカーを探す
+      -- または、このDIDを受託者として持つ信頼対象DIDを探す
       match findTrustAnchorForTrustee dict issuerDID with
       | none => False  -- 受託者として認証されていない
       | some anchorValidDID =>
-          -- そのトラストアンカーが信頼できるか再帰的にチェック
+          -- その信頼対象DIDが信頼できるか再帰的にチェック
           -- ValidDIDをUnknownDIDに変換して再帰
           checkTrustChainRecursive dict trustedRoots (UnknownDID.valid anchorValidDID) depth'
 
@@ -351,7 +352,7 @@ def checkTrustChainRecursive
     **設計思想:**
     - AMATELUSは型システムで1階層制限を保証
     - maxChainDepthは常にMaxChainDepth（定数1）を使用
-    - 信頼するTrustAnchorのリストはWallet.trustedAnchorsから取得
+    - 信頼対象DIDのリストはWallet.trustedAnchorsから取得
     - TrustPolicy構造体は不要
 -/
 def verifyTrustChain
@@ -359,9 +360,9 @@ def verifyTrustChain
     (vc : UnknownVC) : Prop :=
   -- 発行者DIDを取得
   let issuerDID := UnknownVC.getIssuer vc
-  -- 信頼するトラストアンカーのリスト（dictのキー）
+  -- 信頼対象DIDのリスト（dictのキー）
   let trustedRoots := dict.map (fun (did, _) => UnknownDID.valid did)
-  -- 発行者がトラストアンカーのリストに含まれているか確認
+  -- 発行者が信頼対象リストに含まれているか確認
   (issuerDID ∈ trustedRoots) ∨
   -- または、信頼チェーンを辿る（深さはMaxChainDepth = 1に固定）
   (checkTrustChainRecursive dict trustedRoots issuerDID MaxChainDepth)
@@ -402,7 +403,7 @@ end Verifier
 -/
 theorem wallet_store_preserves_validity :
   ∀ (wallet : Wallet) (vc : ValidVC) (holderDID : ValidDID)
-    (h_subject : ValidVC.getSubjectDID vc = holderDID)
+    (h_subject : vc.subjectDID = holderDID)
     (h_has_did : Wallet.hasDID wallet holderDID),
     -- 前提: walletが正規
     Wallet.isValid wallet →

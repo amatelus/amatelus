@@ -30,10 +30,27 @@ structure ClaimID where
     - `claimID`: クレームの識別子（発行者が定義）
       - `Some claimID`: 特定のクレームタイプ（住民票、運転免許証、推薦状等）
       - `None`: クレームIDが指定されていない（汎用クレーム）
+
+    **AHI (Anonymous Hash Identifier) について:**
+    NationalID（マイナンバー等の個人番号）を含むクレームは、
+    AHI機能を使用する場合にのみ `data` フィールドに含まれます。
+
+    - **AHI機能を使用する場合:**
+      - IssuerまたはVerifierが監査機能を要求する場合
+      - `data` フィールドにNationalIDが含まれる
+      - HolderはAHIを生成して提示する
+
+    - **AHI機能を使用しない場合:**
+      - 通常のサービス利用（監査不要）
+      - `data` フィールドにNationalIDは含まれない
+      - 通常のVCとZKPのみで運用される
+
+    **重要:** 個人番号制度がない国でも、NationalIDを含まないVCで
+    AMATELUSプロトコルは完全に機能します。
 -/
 structure Claims where
-  data : String  -- 実際には構造化データ
-  claimID : Option ClaimID  -- クレームの識別子
+  data : String  -- 実際には構造化データ（NationalIDはオプショナル）
+  claimID : Option ClaimID  -- クレームの識別子（オプショナル）
   deriving Repr, DecidableEq
 
 /-- ClaimsからClaimIDを取得する関数（定義として実装） -/
@@ -51,7 +68,28 @@ structure NationalID where
   deriving Repr, DecidableEq
 
 /-- 匿名ハッシュ識別子 (Anonymous Hash Identifier)
-    AHI := H(AuditSectionID || NationalID) -/
+
+    AHI := H(AuditSectionID || NationalID)
+
+    **オプショナル機能:**
+    AHIはAMATELUSプロトコルのオプショナル機能です。
+    使用するかどうかは、IssuerまたはVerifierが決定します。
+
+    - **AHIが使用される場合:**
+      - 監査が必要なサービス（納税、給付、許認可等）
+      - 多重アカウント防止が必要なサービス（SNS、チケット販売等）
+      - 個人番号制度が存在する国・地域
+
+    - **AHIが使用されない場合:**
+      - 通常のサービス利用（監査不要）
+      - 個人番号制度がない国・地域
+      - Holderが任意にAHIの提示を拒否することも可能
+
+    **設計の重要な性質:**
+    - `ProtocolState.ahis: List` は空リスト `[]` でも良い
+    - AHI機能を使用しなくても、AMATELUSは完全に機能する
+    - NationalIDSystemが存在しない場合、AHIは構築できない
+-/
 structure AnonymousHashIdentifier where
   hash : Hash
   deriving Repr, DecidableEq

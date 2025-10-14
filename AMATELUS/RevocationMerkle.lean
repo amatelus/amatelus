@@ -8,12 +8,20 @@
 2. タイムスタンプ検証はVerifier側で実行（ZKP回路外）
 3. ゼロ知識性の保持（どのVCか特定されない）
 4. 型安全性によるプロトコル保証
+5. revocationEnabledフラグによる個人Issuer対応
 
 **主要な概念:**
 - ValidMerkleProof: 暗号学的に正しい包含証明
 - InvalidMerkleProof: 不正な包含証明
 - MerkleRevocationList: Issuerが管理する失効情報
 - ZKPWithRevocation: 失効確認付きZKP
+- revocationEnabled: 失効確認の有効化フラグ（Issuer署名で保護）
+
+**revocationEnabledフラグの重要性:**
+- Issuerがクレームごとに失効確認の可否を含める
+- HolderはZKPに失効確認フラグを入力
+- Verifierは数学的に失効確認の有無を判定可能
+- 個人IssuerはウェブサーバーなしでVC発行可能（revocationEnabled = false）
 
 **参考文献:**
 - RFC 6962: Certificate Transparency
@@ -253,24 +261,29 @@ end MerkleRevocationList
     **構造:**
     - vcContent: VCの完全な内容（秘密）
     - issuerSignature: IssuerのVC署名（秘密）
-    - merkleProof: Merkle包含証明（秘密）
+    - revocationEnabled: 失効確認の有効化フラグ（VCのクレーム内に含まれる）
+    - merkleProof: Merkle包含証明（秘密、revocationEnabled = true の場合のみ）
     - additionalSecrets: その他の秘密情報
 
     **ZKP回路内の検証:**
     1. Issuer署名検証: Verify(issuerSignature, vc_full)
-    2. VCハッシュ計算: vc_hash = SHA-256(vc_full)
-    3. Merkle包含証明検証: MerkleVerify(vc_hash, merkleProof, merkleRoot)
+    2. revocationEnabledフラグの検証: VC内のフラグとPublic Inputが一致
+    3. VCハッシュ計算: vc_hash = SHA-256(vc_full)
+    4. Merkle包含証明検証（revocationEnabled = true の場合のみ）:
+       MerkleVerify(vc_hash, merkleProof, merkleRoot)
        → VCがActive Listに含まれる = 失効していない
-    4. 属性の選択的開示
-    5. 双方向ナンス検証
+    5. 属性の選択的開示
+    6. 双方向ナンス検証
 -/
 structure ZKPSecretInputWithRevocation where
   /-- VCの完全な内容 -/
   vcContent : String
   /-- Issuerの署名 -/
   issuerSignature : Signature
-  /-- Merkle包含証明 -/
-  merkleProof : UnknownMerkleProof
+  /-- 失効確認の有効化フラグ（VCのクレーム内に含まれる、Issuer署名で保護） -/
+  revocationEnabled : Bool
+  /-- Merkle包含証明（revocationEnabled = true の場合のみ必要） -/
+  merkleProof : Option UnknownMerkleProof
   /-- その他の秘密情報 -/
   additionalSecrets : List (String × String)
   deriving Repr
@@ -280,23 +293,31 @@ structure ZKPSecretInputWithRevocation where
     失効確認を含むZKP生成の公開入力。
 
     **構造:**
-    - merkleRoot: 最新のMerkle Root（公開）
-    - merkleRootVersion: バージョン番号（公開）
+    - revocationEnabled: 失効確認の有効化フラグ（VCのクレーム内に含まれ、Issuer署名で保護）
+    - merkleRoot: 最新のMerkle Root（公開、revocationEnabled = true の場合のみ）
+    - merkleRootVersion: バージョン番号（公開、revocationEnabled = true の場合のみ）
     - publicAttributes: 公開する属性（選択的開示）
     - verifierNonce: Verifierが生成したnonce
     - holderNonce: Holderが生成したnonce
 
     **重要な設計判断:**
-    validUntilは公開入力に含めない。
-    理由: Holderが制御可能なタイムスタンプをZKP回路内で検証しても
-          暗号理論的に安全でない。Verifier側でIssuer署名付きの
-          validUntilを検証することで、Holderがタイムスタンプを偽造できない。
+    1. validUntilは公開入力に含めない。
+       理由: Holderが制御可能なタイムスタンプをZKP回路内で検証しても
+             暗号理論的に安全でない。Verifier側でIssuer署名付きの
+             validUntilを検証することで、Holderがタイムスタンプを偽造できない。
+
+    2. revocationEnabledフラグの重要性:
+       HolderがこのフラグをZKP公開入力に含めることで、
+       Verifierは失効確認の有無を数学的に判定可能。
+       フラグの値はIssuer署名で保護されているため、Holderが改ざん不可。
 -/
 structure ZKPPublicInputWithRevocation where
-  /-- Merkle Root（最新） -/
-  merkleRoot : MerkleRoot
-  /-- Merkle Rootのバージョン -/
-  merkleRootVersion : MerkleVersion
+  /-- 失効確認の有効化フラグ（VCのクレーム内に含まれ、Issuer署名で保護） -/
+  revocationEnabled : Bool
+  /-- Merkle Root（最新、revocationEnabled = true の場合のみ必要） -/
+  merkleRoot : Option MerkleRoot
+  /-- Merkle Rootのバージョン（revocationEnabled = true の場合のみ必要） -/
+  merkleRootVersion : Option MerkleVersion
   /-- 公開する属性 -/
   publicAttributes : List (String × String)
   /-- Verifierのnonce -/
@@ -310,13 +331,21 @@ structure ZKPPublicInputWithRevocation where
     失効確認を含むZKPを生成する。
 
     **処理:**
-    1. 秘密入力と公開入力の整合性を検証
-    2. Merkle包含証明を検証（失効確認）
-    3. すべての検証が成功すれば有効なZKPを生成
+    1. 秘密入力と公開入力のrevocationEnabledフラグが一致するか確認
+    2. revocationEnabled = true の場合:
+       - Merkle包含証明を検証（失効確認）
+       - 公開入力のMerkle Rootと一致するか確認
+    3. revocationEnabled = false の場合:
+       - Merkle包含証明の検証をスキップ
+    4. すべての検証が成功すれば有効なZKPを生成
 
-    **失効検出:**
+    **失効検出（revocationEnabled = true の場合）:**
     - Merkle包含証明が不正（invalid） → ZKP生成失敗
     - VCが失効済み → Merkle証明が生成できない → ZKP生成失敗
+
+    **個人Issuer対応（revocationEnabled = false の場合）:**
+    - Merkle証明の検証をスキップ
+    - Verifierは失効確認が行われていないことを認識可能
 
     **設計思想（ZKP.leanと同様）:**
     - 入力の妥当性を検証
@@ -327,42 +356,91 @@ structure ZKPPublicInputWithRevocation where
 def generateZKPWithRevocation
     (secretInputs : ZKPSecretInputWithRevocation)
     (publicInputs : ZKPPublicInputWithRevocation) : UnknownZKP :=
-  -- 1. Merkle包含証明の検証（失効確認の核心）
-  let merkleProofValid := secretInputs.merkleProof.verify
+  -- 1. revocationEnabledフラグの整合性確認
+  let flagMatches := secretInputs.revocationEnabled == publicInputs.revocationEnabled
 
-  -- 2. 公開入力のMerkle Rootと一致するか確認
-  let merkleRootMatches :=
-    secretInputs.merkleProof.getRoot == publicInputs.merkleRoot
+  -- 2. 条件分岐: revocationEnabledに基づく検証
+  if secretInputs.revocationEnabled then
+    -- revocationEnabled = true の場合: Merkle包含証明を検証
+    match secretInputs.merkleProof, publicInputs.merkleRoot with
+    | some merkleProof, some merkleRoot =>
+        -- Merkle包含証明の検証（失効確認の核心）
+        let merkleProofValid := merkleProof.verify
+        -- 公開入力のMerkle Rootと一致するか確認
+        let merkleRootMatches := merkleProof.getRoot == merkleRoot
 
-  -- 3. すべての検証が成功すれば有効なZKPを生成
-  if merkleProofValid && merkleRootMatches then
-    -- 有効なZKPを生成（HolderCredentialZKPCore型）
-    let core := {
-      core := {
-        proof := ⟨[]⟩,  -- 実際の証明データ（抽象化）
-        publicInput := ⟨[]⟩,  -- 公開入力（抽象化）
-        proofPurpose := "失効確認付き資格証明",
-        created := ⟨0⟩  -- TODO: 実際のタイムスタンプ
-      },
-      holderNonce := publicInputs.holderNonce,
-      verifierNonce := publicInputs.verifierNonce,
-      claimedAttributes := ""  -- 簡略化のため空文字列
-    }
-    UnknownZKP.valid ⟨Sum.inr core⟩
+        if flagMatches && merkleProofValid && merkleRootMatches then
+          -- 有効なZKPを生成（HolderCredentialZKPCore型）
+          let core := {
+            core := {
+              proof := ⟨[]⟩,
+              publicInput := ⟨[]⟩,
+              proofPurpose := "失効確認付き資格証明",
+              created := ⟨0⟩
+            },
+            holderNonce := publicInputs.holderNonce,
+            verifierNonce := publicInputs.verifierNonce,
+            claimedAttributes := ""
+          }
+          UnknownZKP.valid ⟨Sum.inr core⟩
+        else
+          -- 検証失敗
+          let core := {
+            core := {
+              proof := ⟨[]⟩,
+              publicInput := ⟨[]⟩,
+              proofPurpose := "失効確認付き資格証明",
+              created := ⟨0⟩
+            },
+            holderNonce := publicInputs.holderNonce,
+            verifierNonce := publicInputs.verifierNonce,
+            claimedAttributes := ""
+          }
+          UnknownZKP.invalid ⟨Sum.inr core, "Merkle包含証明の検証失敗（失効済み）"⟩
+    | _, _ =>
+        -- Merkle証明またはMerkle Rootが存在しない
+        let core := {
+          core := {
+            proof := ⟨[]⟩,
+            publicInput := ⟨[]⟩,
+            proofPurpose := "失効確認付き資格証明",
+            created := ⟨0⟩
+          },
+          holderNonce := publicInputs.holderNonce,
+          verifierNonce := publicInputs.verifierNonce,
+          claimedAttributes := ""
+        }
+        UnknownZKP.invalid ⟨Sum.inr core, "Merkle証明またはMerkle Rootが存在しない"⟩
   else
-    -- 入力が不正な場合は無効なZKPを返す
-    let core := {
-      core := {
-        proof := ⟨[]⟩,
-        publicInput := ⟨[]⟩,
-        proofPurpose := "失効確認付き資格証明",
-        created := ⟨0⟩
-      },
-      holderNonce := publicInputs.holderNonce,
-      verifierNonce := publicInputs.verifierNonce,
-      claimedAttributes := ""
-    }
-    UnknownZKP.invalid ⟨Sum.inr core, "Merkle包含証明の検証失敗（失効済み）"⟩
+    -- revocationEnabled = false の場合: Merkle包含証明の検証をスキップ
+    if flagMatches then
+      -- 有効なZKPを生成（失効確認なし）
+      let core := {
+        core := {
+          proof := ⟨[]⟩,
+          publicInput := ⟨[]⟩,
+          proofPurpose := "失効確認なし資格証明",
+          created := ⟨0⟩
+        },
+        holderNonce := publicInputs.holderNonce,
+        verifierNonce := publicInputs.verifierNonce,
+        claimedAttributes := ""
+      }
+      UnknownZKP.valid ⟨Sum.inr core⟩
+    else
+      -- フラグ不一致
+      let core := {
+        core := {
+          proof := ⟨[]⟩,
+          publicInput := ⟨[]⟩,
+          proofPurpose := "失効確認なし資格証明",
+          created := ⟨0⟩
+        },
+        holderNonce := publicInputs.holderNonce,
+        verifierNonce := publicInputs.verifierNonce,
+        claimedAttributes := ""
+      }
+      UnknownZKP.invalid ⟨Sum.inr core, "revocationEnabledフラグ不一致"⟩
 
 -- ## Section 5: Verifier側の検証
 
@@ -490,7 +568,7 @@ theorem invalid_merkle_proof_fails :
   unfold UnknownMerkleProof.isValid UnknownMerkleProof.verify
   simp
 
-/-- Theorem: 失効VCでZKP生成不可能
+/-- Theorem: 失効VCでZKP生成不可能（revocationEnabled = true の場合）
 
     VCが失効された場合、そのVCでZKPを生成することは不可能である。
 
@@ -499,56 +577,106 @@ theorem invalid_merkle_proof_fails :
     2. 新しいMerkle Root生成 → 失効VCのハッシュを含まない
     3. Holderが失効VCでZKP生成を試みる
     4. Merkle包含証明が不正（invalid） → ZKP生成失敗
+
+    **前提条件:**
+    - secretInputs.revocationEnabled = true
+    - publicInputs.revocationEnabled = true
+    - secretInputs.merkleProof = some merkleProof
+    - merkleProof.verify = false（失効済み）
 -/
-theorem revoked_vc_cannot_generate_zkp :
+theorem revoked_vc_cannot_generate_zkp_with_revocation :
   ∀ (secretInputs : ZKPSecretInputWithRevocation)
-    (publicInputs : ZKPPublicInputWithRevocation),
-  secretInputs.merkleProof.verify = false →
+    (publicInputs : ZKPPublicInputWithRevocation)
+    (merkleProof : UnknownMerkleProof)
+    (merkleRoot : MerkleRoot),
+  secretInputs.revocationEnabled = true →
+  publicInputs.revocationEnabled = true →
+  secretInputs.merkleProof = some merkleProof →
+  publicInputs.merkleRoot = some merkleRoot →
+  merkleProof.verify = false →
   ∃ (izkp : InvalidZKP),
     generateZKPWithRevocation secretInputs publicInputs =
       UnknownZKP.invalid izkp := by
-  intro secretInputs publicInputs h_invalid
+  intro secretInputs publicInputs merkleProof merkleRoot
+    h_rev_enabled_secret h_rev_enabled_public h_merkle_proof h_merkle_root h_invalid
   -- generateZKPWithRevocationの定義を展開
   unfold generateZKPWithRevocation
-  -- merkleProofValid = secretInputs.merkleProof.verify = false (by h_invalid)
-  -- したがって (false && _) = false → elseブランチが実行される
-  simp only [h_invalid, Bool.false_and]
-  -- elseブランチはUnknownZKP.invalidを返す
-  -- 具体的なInvalidZKPを構築
-  exists ⟨Sum.inr {
-    core := {
-      proof := ⟨[]⟩,
-      publicInput := ⟨[]⟩,
-      proofPurpose := "失効確認付き資格証明",
-      created := ⟨0⟩
-    },
-    holderNonce := publicInputs.holderNonce,
-    verifierNonce := publicInputs.verifierNonce,
-    claimedAttributes := ""
-  }, "Merkle包含証明の検証失敗（失効済み）"⟩
+  -- revocationEnabled = true
+  simp only [h_rev_enabled_secret, h_rev_enabled_public]
+  -- match式を展開
+  simp only [h_merkle_proof, h_merkle_root]
+  -- merkleProofValid = merkleProof.verify = false (by h_invalid)
+  simp only [h_invalid]
+  -- flagMatches = true && merkleProofValid = false && merkleRootMatches
+  -- → (true && false && _) = false → elseブランチ
+  -- simpが自動的にInvalidZKPの存在を証明
+  simp
 
-/-- Theorem: 有効なMerkle証明から生成されたZKPは有効
+/-- Theorem: 有効なMerkle証明から生成されたZKPは有効（revocationEnabled = true の場合）
 
     Merkle包含証明が有効な場合、生成されるZKPも有効である。
+
+    **前提条件:**
+    - secretInputs.revocationEnabled = true
+    - publicInputs.revocationEnabled = true
+    - secretInputs.merkleProof = some merkleProof
+    - merkleProof.verify = true（有効な証明）
+    - merkleProof.getRoot = merkleRoot
 -/
-theorem valid_merkle_proof_generates_valid_zkp :
+theorem valid_merkle_proof_generates_valid_zkp_with_revocation :
   ∀ (secretInputs : ZKPSecretInputWithRevocation)
-    (publicInputs : ZKPPublicInputWithRevocation),
-  secretInputs.merkleProof.verify = true →
-  secretInputs.merkleProof.getRoot = publicInputs.merkleRoot →
+    (publicInputs : ZKPPublicInputWithRevocation)
+    (merkleProof : UnknownMerkleProof)
+    (merkleRoot : MerkleRoot),
+  secretInputs.revocationEnabled = true →
+  publicInputs.revocationEnabled = true →
+  secretInputs.merkleProof = some merkleProof →
+  publicInputs.merkleRoot = some merkleRoot →
+  merkleProof.verify = true →
+  merkleProof.getRoot = merkleRoot →
   ∃ (vzkp : ValidZKP),
     generateZKPWithRevocation secretInputs publicInputs =
       UnknownZKP.valid vzkp := by
-  intro secretInputs publicInputs h_valid h_root_match
+  intro secretInputs publicInputs merkleProof merkleRoot
+    h_rev_enabled_secret h_rev_enabled_public h_merkle_proof h_merkle_root h_valid h_root_match
   -- generateZKPWithRevocationの定義を展開
   unfold generateZKPWithRevocation
-  -- merkleProofValid = secretInputs.merkleProof.verify = true (by h_valid)
+  -- revocationEnabled = true
+  simp only [h_rev_enabled_secret, h_rev_enabled_public]
+  -- match式を展開
+  simp only [h_merkle_proof, h_merkle_root]
+  -- merkleProofValid = merkleProof.verify = true (by h_valid)
   simp only [h_valid]
-  -- h_root_match を使って getRoot を書き換え
+  -- merkleRootMatches = merkleProof.getRoot == merkleRoot
   rw [h_root_match]
-  -- merkleRoot == merkleRoot = true (reflexivity of BEq)
-  -- (true && true) = true → thenブランチが実行される
-  -- simpがValidZKPの存在を自動証明
+  -- (true && true && true) = true → thenブランチが実行される
+  -- simpが自動的にValidZKPの存在を証明
+  simp
+
+/-- Theorem: revocationEnabled = false の場合、ZKP生成成功
+
+    失効確認が無効な場合、Merkle証明なしでZKPを生成できる。
+
+    **前提条件:**
+    - secretInputs.revocationEnabled = false
+    - publicInputs.revocationEnabled = false
+-/
+theorem zkp_generation_without_revocation :
+  ∀ (secretInputs : ZKPSecretInputWithRevocation)
+    (publicInputs : ZKPPublicInputWithRevocation),
+  secretInputs.revocationEnabled = false →
+  publicInputs.revocationEnabled = false →
+  ∃ (vzkp : ValidZKP),
+    generateZKPWithRevocation secretInputs publicInputs =
+      UnknownZKP.valid vzkp := by
+  intro secretInputs publicInputs h_rev_disabled_secret h_rev_disabled_public
+  -- generateZKPWithRevocationの定義を展開
+  unfold generateZKPWithRevocation
+  -- revocationEnabled = false
+  simp only [h_rev_disabled_secret, h_rev_disabled_public]
+  -- elseブランチ（revocationEnabled = false）
+  -- flagMatches = true なので thenブランチが実行される
+  -- simpが自動的にValidZKPの存在を証明
   simp
 
 /-- Theorem: タイムスタンプ偽造不可能性
@@ -654,31 +782,42 @@ theorem version_lag_exceeded_rejected :
 /-- 失効確認フローのセキュリティ保証
 
     **形式検証の効果:**
-    - 失効されたVCでZKP生成が不可能（revoked_vc_cannot_generate_zkp）
+    - 失効されたVCでZKP生成が不可能（revoked_vc_cannot_generate_zkp_with_revocation）
+    - 有効なMerkle証明から有効なZKPを生成（valid_merkle_proof_generates_valid_zkp_with_revocation）
+    - 失効確認なしでもZKP生成可能（zkp_generation_without_revocation）
     - タイムスタンプ偽造が不可能（timestamp_forgery_impossible）
     - 期限切れMerkle Rootが拒否される（expired_merkle_root_rejected）
     - バージョンラグ超過が拒否される（version_lag_exceeded_rejected）
 
     **プロトコルレベルの保証:**
     - ゼロ知識性の保持（どのVCか特定されない）
-    - 失効確認の安全性（Merkle包含証明の検証）
+    - 失効確認の安全性（Merkle包含証明の検証、revocationEnabled = true の場合）
     - タイムスタンプ偽造耐性（Issuer署名付きvalidUntil）
     - スケーラビリティ（O(log N)の計算量）
+    - 個人Issuer対応（revocationEnabled = false で運用可能）
 
     **型安全性によるプロトコル保証:**
     - 不正なMerkle証明はInvalidMerkleProofとして扱われる
     - 検証に成功した証明のみがValidMerkleProofとして保存される
+    - revocationEnabledフラグはIssuer署名で保護される
+    - Verifierは失効確認の有無を数学的に判定可能
     - プロトコルの安全性が形式的に保証される
 -/
 def revocation_security_guarantees : String :=
   "Merkle Tree Revocation Security Guarantees:
    1. Valid Merkle proofs pass verification (valid_merkle_proof_passes)
    2. Invalid Merkle proofs fail verification (invalid_merkle_proof_fails)
-   3. Revoked VCs cannot generate ZKP (revoked_vc_cannot_generate_zkp)
-   4. Valid Merkle proofs generate valid ZKP (valid_merkle_proof_generates_valid_zkp)
-   5. Timestamp forgery impossible (timestamp_forgery_impossible)
-   6. Expired Merkle Root rejected (expired_merkle_root_rejected)
-   7. Version lag exceeded rejected (version_lag_exceeded_rejected)
-   8. Zero-knowledge property (VC identity not revealed)
-   9. Scalability (O(log N) computational complexity)
-   10. Protocol-level rule: Invalid proofs are ignored"
+   3. Revoked VCs cannot generate ZKP with revocation enabled \
+      (revoked_vc_cannot_generate_zkp_with_revocation)
+   4. Valid Merkle proofs generate valid ZKP with revocation enabled \
+      (valid_merkle_proof_generates_valid_zkp_with_revocation)
+   5. ZKP generation without revocation (zkp_generation_without_revocation)
+   6. Timestamp forgery impossible (timestamp_forgery_impossible)
+   7. Expired Merkle Root rejected (expired_merkle_root_rejected)
+   8. Version lag exceeded rejected (version_lag_exceeded_rejected)
+   9. Zero-knowledge property (VC identity not revealed)
+   10. Scalability (O(log N) computational complexity)
+   11. Individual Issuer support \
+       (revocationEnabled = false allows operation without web server)
+   12. Protocol-level rule: Invalid proofs are ignored, \
+       revocationEnabled flag is cryptographically protected"

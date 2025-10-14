@@ -37,6 +37,9 @@ import AMATELUS.MultiDevice
 -- 失効確認フロー
 import AMATELUS.RevocationMerkle
 
+-- 秘密鍵ライフサイクル管理
+import AMATELUS.KeyManagement
+
 -- プライバシー保護機構の証明 (Theorem 5.1, 5.3)
 import AMATELUS.Privacy
 

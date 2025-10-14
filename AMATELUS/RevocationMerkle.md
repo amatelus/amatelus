@@ -36,6 +36,48 @@ W3C Bitstring Status Listは、失効確認のために`statusListIndex`を公�
 3. **スケーラビリティ**: O(log N)の計算量（N = アクティブVC数）
 4. **災害時の可用性**: オフライン時は失効確認スキップ可能
 5. **W3C VC互換**: credentialStatus拡張として実装
+6. **個人Issuerの対応**: ウェブサーバーを管理できない個人Issuerも運用可能
+
+### 1.3 個人Issuerの課題と解決策
+
+#### 1.3.1 課題
+
+Merkle Tree方式の失効確認は、Issuerが中央集権的なウェブサーバー（Merkle Root公開用）を運営する必要があります：
+
+```
+問題点:
+  - 個人IssuerはHTTPサーバーを常時稼働できない可能性が高い
+  - サーバー管理コスト（ドメイン、SSL証明書、インフラ維持費）
+  - 24時間365日の可用性保証が困難
+```
+
+**従来設計の不備**:
+- Holderが失効確認結果をZKPに含めなかった場合、Verifierはそもそも失効確認可能なVCかどうかを知ることができない
+- これにより、失効確認をスキップされても検出不可能
+
+#### 1.3.2 解決策：失効確認可否フラグ
+
+**設計原則**:
+```
+Issuerが発行時に必ず失効確認の可否を含める（revocationEnabledフラグ）
+  ↓
+HolderはZKP生成時、このフラグをZKP回路に入力
+  ↓
+Verifierは数学的に失効確認の有無を判定可能
+```
+
+**具体的な実装**:
+1. VC発行時、Issuerが`revocationEnabled: true/false`をクレームに含める
+2. このフラグはIssuer署名の対象（改ざん不可）
+3. ZKP回路内で以下を検証：
+   - `revocationEnabled = true` → Merkle証明の検証が必須
+   - `revocationEnabled = false` → Merkle証明の検証をスキップ
+4. Verifierは`revocationEnabled`の値をZKP公開入力として受け取り、ポリシー判定
+
+**利点**:
+- 個人Issuerはサーバー管理不要で`revocationEnabled = false`のVCを発行可能
+- Verifierは失効確認の有無を数学的に確認できる（Holderが隠蔽不可）
+- 組織Issuerは`revocationEnabled = true`で高い信頼性を提供可能
 
 ---
 
@@ -134,8 +176,8 @@ structure ZKPSecretInputWithRevocation where
   vcContent : String
   /-- Issuerの署名 -/
   issuerSignature : Signature
-  /-- Merkle証明 -/
-  merkleProof : MerkleProof
+  /-- Merkle証明（revocationEnabled = true の場合のみ必要） -/
+  merkleProof : Option MerkleProof
   /-- その他の秘密情報 -/
   additionalSecrets : List (String × String)
   deriving Repr
@@ -145,10 +187,12 @@ structure ZKPSecretInputWithRevocation where
 
 ```lean
 structure ZKPPublicInputWithRevocation where
-  /-- Merkle Root（最新） -/
-  merkleRoot : Hash
-  /-- Merkle Rootのバージョン -/
-  merkleRootVersion : Nat
+  /-- 失効確認の有効化フラグ（VCのクレーム内に含まれ、Issuer署名で保護） -/
+  revocationEnabled : Bool
+  /-- Merkle Root（最新、revocationEnabled = true の場合のみ必要） -/
+  merkleRoot : Option Hash
+  /-- Merkle Rootのバージョン（revocationEnabled = true の場合のみ必要） -/
+  merkleRootVersion : Option Nat
   /-- 公開する属性 -/
   publicAttributes : List (String × String)
   /-- Verifierのnonce -/
@@ -160,6 +204,11 @@ structure ZKPPublicInputWithRevocation where
 -- Note: validUntilはZKP公開入力に含めない
 --       Verifier側でIssuer署名付きのvalidUntilを検証する
 --       これにより、Holderがタイムスタンプを偽造できない
+
+-- Note: revocationEnabledフラグの重要性
+--       HolderがこのフラグをZKP公開入力に含めることで、
+--       Verifierは失効確認の有無を数学的に判定可能
+--       フラグの値はIssuer署名で保護されているため、Holderが改ざん不可
 ```
 
 ---
@@ -280,8 +329,9 @@ Algorithm:
 
 ```
 Public Input:
-  - merkle_root (最新のMerkle Root)
-  - merkle_root_version (バージョン番号)
+  - revocation_enabled (失効確認の有効化フラグ、VCのクレーム内に含まれる)
+  - merkle_root (最新のMerkle Root、revocation_enabled = true の場合のみ)
+  - merkle_root_version (バージョン番号、revocation_enabled = true の場合のみ)
   - claimed_attributes (age >= 20, etc.)
   - verifier_nonce
   - holder_nonce
@@ -289,37 +339,47 @@ Public Input:
 Private Input:
   - vc_full (VC全体の内容)
   - issuer_signature (IssuerのVC署名)
-  - merkle_proof.leafIndex
-  - merkle_proof.siblingHashes
-  - merkle_proof.treeDepth
+  - merkle_proof.leafIndex (revocation_enabled = true の場合のみ)
+  - merkle_proof.siblingHashes (revocation_enabled = true の場合のみ)
+  - merkle_proof.treeDepth (revocation_enabled = true の場合のみ)
 
 Constraints:
   1. Issuer署名検証
      Verify(issuer_signature, vc_full, issuer_pubkey) = true
 
-  2. VCハッシュ計算
+  2. VCからrevocationEnabledフラグを抽出
+     extracted_revocation_enabled = ExtractRevocationEnabled(vc_full)
+     assert extracted_revocation_enabled == revocation_enabled
+     // ✅ HolderがrevocationEnabledフラグを偽造不可能
+     //    VCのクレームに含まれるrevocationEnabledとPublic Inputが一致
+
+  3. VCハッシュ計算
      vc_hash = SHA-256(Canonicalize(vc_full))
 
-  3. Merkle証明検証（失効確認の核心）
-     current = vc_hash
-     index = merkle_proof.leafIndex
+  4. Merkle証明検証（revocation_enabled = true の場合のみ）
+     if revocation_enabled == true:
+       current = vc_hash
+       index = merkle_proof.leafIndex
 
-     for sibling in merkle_proof.siblingHashes:
-       if index % 2 == 0:
-         current = SHA-256(current || sibling)
-       else:
-         current = SHA-256(sibling || current)
-       index = index / 2
+       for sibling in merkle_proof.siblingHashes:
+         if index % 2 == 0:
+           current = SHA-256(current || sibling)
+         else:
+           current = SHA-256(sibling || current)
+         index = index / 2
 
-     assert current == merkle_root
-     // ✅ VCがActive Listに含まれている = 失効していない
+       assert current == merkle_root
+       // ✅ VCがActive Listに含まれている = 失効していない
+     else:
+       // revocation_enabled == false の場合、Merkle証明検証をスキップ
+       // ⚠️ Verifierは失効確認が行われていないことを認識可能
 
-  4. 属性の選択的開示
+  5. 属性の選択的開示
      extracted = ExtractAttributes(vc_full, claimed_attributes)
      assert extracted satisfies claimed_attributes
      // 例: vc_full.age >= 20 and claimed_attributes.age_over_20 = true
 
-  5. 双方向ナンス検証
+  6. 双方向ナンス検証
      nonce_combined = SHA-256(holder_nonce || verifier_nonce)
      assert nonce_combined is_bound_to_proof
      // リプレイ攻撃防止
@@ -328,9 +388,16 @@ Constraints:
 //       Holderが制御可能なタイムスタンプをZKP回路内で検証しても
 //       暗号理論的に安全でない。Verifier側でIssuer署名付きの
 //       validUntilを検証することで、安全性を保証する。
+
+// Note: revocationEnabledフラグの検証の重要性
+//       Constraint 2により、HolderがrevocationEnabledフラグを偽造できない
+//       VCのクレーム内に含まれるrevocationEnabledはIssuer署名で保護されている
+//       ゆえに、Verifierは数学的に失効確認の有無を判定可能
 ```
 
 ### 4.2 ZKP生成の流れ
+
+#### 4.2.1 失効確認有効（revocationEnabled = true）の場合
 
 ```
 1. 事前計算フェーズ（オフライン、数分〜数時間）
@@ -364,7 +431,38 @@ Constraints:
    )
 
 6. 送信
-   Holder → (zkp, merkle_root, holder_nonce) → Verifier
+   Holder → (zkp, revocation_enabled=true, merkle_root, merkle_root_version, holder_nonce) → Verifier
+```
+
+#### 4.2.2 失効確認無効（revocationEnabled = false）の場合
+
+```
+1. 事前計算フェーズ（オフライン、数分〜数時間）
+   - VC署名検証の事前計算
+   - 属性抽出の回路評価
+   - 部分的な証明生成
+
+2. Merkle Root取得（スキップ）
+   // ⚠️ revocationEnabled = false のため不要
+
+3. Merkle証明生成（スキップ）
+   // ⚠️ revocationEnabled = false のため不要
+
+4. 双方向ナンス結合（リアルタイム、数ミリ秒）
+   Holder ← verifier_nonce ← Verifier
+   holder_nonce = RandomBytes(16)
+   nonce_combined = SHA-256(holder_nonce || verifier_nonce)
+
+5. 最終ZKP生成（リアルタイム、数百ミリ秒）
+   zkp = Combine(
+     precomputed_proof,
+     nonce_combined
+   )
+   // Merkle証明は含まれない
+
+6. 送信
+   Holder → (zkp, revocation_enabled=false, holder_nonce) → Verifier
+   // merkle_root, merkle_root_versionは送信しない
 ```
 
 ---
@@ -373,9 +471,20 @@ Constraints:
 
 ### 5.1 VC発行
 
+#### 5.1.1 失効確認有効（revocationEnabled = true）の場合
+
+組織Issuerや、ウェブサーバーを管理できるIssuer向け：
+
 ```
-1. VCを生成
-   vc = CreateVC(subject, claims, issuer_signature)
+1. VCを生成（revocationEnabledフラグを含める）
+   vc = CreateVC(
+     subject,
+     claims: {
+       ...user_claims,
+       revocationEnabled: true  // ⚠️ 必須フラグ
+     },
+     issuer_signature
+   )
 
 2. VCハッシュを計算
    vc_hash = SHA-256(Canonicalize(vc))
@@ -400,14 +509,50 @@ Constraints:
    merkleProof = GenerateMerkleProof(vc_hash, activeVCHashes)
 
    Send to Holder: {
-     vc,
+     vc,  // revocationEnabled: true を含む
      merkleProof,
      merkleRoot,
      version
    }
 ```
 
+#### 5.1.2 失効確認無効（revocationEnabled = false）の場合
+
+個人Issuerや、ウェブサーバーを管理できないIssuer向け：
+
+```
+1. VCを生成（revocationEnabledフラグをfalseに設定）
+   vc = CreateVC(
+     subject,
+     claims: {
+       ...user_claims,
+       revocationEnabled: false  // ⚠️ 失効確認なし
+     },
+     issuer_signature
+   )
+
+2. VCハッシュを計算（不要だがオプション）
+   // Active Listへの追加は不要
+
+3. Active Listへの追加（スキップ）
+   // ⚠️ revocationEnabled = false のため不要
+
+4. Merkle Root更新（スキップ）
+   // ⚠️ revocationEnabled = false のため不要
+
+5. 署名付きMerkle Root公開（スキップ）
+   // ⚠️ revocationEnabled = false のため不要
+
+6. VCのみをHolderに送信
+   Send to Holder: {
+     vc  // revocationEnabled: false を含む
+   }
+   // Merkle証明、Merkle Rootは送信しない
+```
+
 ### 5.2 VC失効
+
+#### 5.2.1 失効確認有効（revocationEnabled = true）のVCの失効
 
 ```
 1. Holderから失効リクエスト受信
@@ -439,6 +584,26 @@ Constraints:
      revoked_at: now(),
      reason
    })
+```
+
+#### 5.2.2 失効確認無効（revocationEnabled = false）のVCの失効
+
+```
+失効確認無効のVCは、そもそも失効メカニズムが存在しない：
+
+⚠️ 設計上の制約:
+  - revocationEnabled = false のVCはActive Listに含まれていない
+  - Issuerが失効を実行する手段がない
+  - HolderがVCを破棄する以外に失効方法がない
+
+代替手段:
+  1. Holderに対して「VCを破棄してください」と通知
+  2. 新しいVCを発行し直す（今度はrevocationEnabled = true）
+  3. Verifier側のポリシーで「revocationEnabled = false」を拒否
+
+注意:
+  個人IssuerがrevocationEnabled = false のVCを発行する際は、
+  「失効不可能」であることをHolder/Verifierに明示すべき
 ```
 
 ### 5.3 定期的なMerkle Root更新
@@ -515,66 +680,116 @@ POST /api/revoke
 ```
 Input:
   - vc (保持しているVC)
-  - merkleProof (Issuerから取得済み、またはActive Listから自己生成)
+  - merkleProof (Issuerから取得済み、またはActive Listから自己生成、revocationEnabled = true の場合のみ)
   - publicAttributes (公開したい属性)
   - verifierNonce (Verifierから受信)
 
 Output: ZKP
 
 Function GenerateZKPWithRevocation(vc, merkleProof, publicAttributes, verifierNonce):
-  1. 最新のMerkle Rootを取得
-     merkleRootData = HTTP_GET(issuer.merkle_root_endpoint)
+  // VCからrevocationEnabledフラグを抽出
+  revocationEnabled = ExtractRevocationEnabled(vc)
 
-     // Issuer署名を検証
-     if !VerifySignature(merkleRootData, issuer.pubkey):
-       return Error("Invalid Merkle Root signature")
+  if revocationEnabled == true:
+    // 失効確認有効の場合
 
-     // 有効期限を確認
-     if now() > merkleRootData.validUntil:
-       return Error("Merkle Root expired")
+    1. 最新のMerkle Rootを取得
+       merkleRootData = HTTP_GET(issuer.merkle_root_endpoint)
 
-  2. Merkle証明を検証（ローカル）
-     vcHash = SHA-256(Canonicalize(vc))
-     if !VerifyMerkleProof(vcHash, merkleProof, merkleRootData.merkleRoot):
-       return Error("VC is revoked or proof is invalid")
+       // Issuer署名を検証
+       if !VerifySignature(merkleRootData, issuer.pubkey):
+         return Error("Invalid Merkle Root signature")
 
-  3. Holderナンスを生成
-     holderNonce = RandomBytes(16)
+       // 有効期限を確認
+       if now() > merkleRootData.validUntil:
+         return Error("Merkle Root expired")
 
-  4. ZKP秘密入力を準備
-     secretInputs = {
-       vcContent: vc,
-       issuerSignature: vc.proof.proofValue,
-       merkleProof: merkleProof,
-       additionalSecrets: {...}
-     }
+    2. Merkle証明を検証（ローカル）
+       vcHash = SHA-256(Canonicalize(vc))
+       if !VerifyMerkleProof(vcHash, merkleProof, merkleRootData.merkleRoot):
+         return Error("VC is revoked or proof is invalid")
 
-  5. ZKP公開入力を準備
-     publicInputs = {
-       merkleRoot: merkleRootData.merkleRoot,
-       merkleRootVersion: merkleRootData.version,
-       publicAttributes: publicAttributes,
-       verifierNonce: verifierNonce,
-       holderNonce: holderNonce
-     }
+    3. Holderナンスを生成
+       holderNonce = RandomBytes(16)
 
-     // Note: validUntilはZKP公開入力に含めない
-     //       Verifier側で検証される
+    4. ZKP秘密入力を準備
+       secretInputs = {
+         vcContent: vc,
+         issuerSignature: vc.proof.proofValue,
+         merkleProof: Some(merkleProof),
+         additionalSecrets: {...}
+       }
 
-  6. ZKPを生成
-     zkp = GenerateZKP(
-       circuit: RevocationCircuit,
-       secretInputs: secretInputs,
-       publicInputs: publicInputs
-     )
+    5. ZKP公開入力を準備
+       publicInputs = {
+         revocationEnabled: true,
+         merkleRoot: Some(merkleRootData.merkleRoot),
+         merkleRootVersion: Some(merkleRootData.version),
+         publicAttributes: publicAttributes,
+         verifierNonce: verifierNonce,
+         holderNonce: holderNonce
+       }
 
-  7. 返却
-     return {
-       zkp,
-       merkleRoot: merkleRootData.merkleRoot,
-       merkleRootVersion: merkleRootData.version,
-       holderNonce
-     }
+    6. ZKPを生成
+       zkp = GenerateZKP(
+         circuit: RevocationCircuit,
+         secretInputs: secretInputs,
+         publicInputs: publicInputs
+       )
+
+    7. 返却
+       return {
+         zkp,
+         revocationEnabled: true,
+         merkleRoot: merkleRootData.merkleRoot,
+         merkleRootVersion: merkleRootData.version,
+         holderNonce
+       }
+
+  else:
+    // 失効確認無効の場合
+
+    1. Merkle Root取得（スキップ）
+       // ⚠️ revocationEnabled = false のため不要
+
+    2. Merkle証明検証（スキップ）
+       // ⚠️ revocationEnabled = false のため不要
+
+    3. Holderナンスを生成
+       holderNonce = RandomBytes(16)
+
+    4. ZKP秘密入力を準備
+       secretInputs = {
+         vcContent: vc,
+         issuerSignature: vc.proof.proofValue,
+         merkleProof: None,  // Merkle証明なし
+         additionalSecrets: {...}
+       }
+
+    5. ZKP公開入力を準備
+       publicInputs = {
+         revocationEnabled: false,
+         merkleRoot: None,
+         merkleRootVersion: None,
+         publicAttributes: publicAttributes,
+         verifierNonce: verifierNonce,
+         holderNonce: holderNonce
+       }
+
+    6. ZKPを生成
+       zkp = GenerateZKP(
+         circuit: RevocationCircuit,
+         secretInputs: secretInputs,
+         publicInputs: publicInputs
+       )
+
+    7. 返却
+       return {
+         zkp,
+         revocationEnabled: false,
+         holderNonce
+       }
+       // merkleRoot, merkleRootVersionは含まれない
 ```
 
 ### 6.2 Merkle証明の自己生成
@@ -607,70 +822,117 @@ Function SelfGenerateMerkleProof(vc, activeVCHashes):
 ```
 Input:
   - zkp (Holderから受信)
-  - merkleRoot (HolderがZKP生成時に使用したもの)
-  - merkleRootVersion
+  - revocationEnabled (HolderがZKP生成時に使用したフラグ、ZKP公開入力に含まれる)
+  - merkleRoot (HolderがZKP生成時に使用したもの、revocationEnabled = true の場合のみ)
+  - merkleRootVersion (revocationEnabled = true の場合のみ)
   - holderNonce
   - verifierNonce (自分が送信したもの)
   - publicAttributes (期待する属性)
 
 Output: Bool (検証成功/失敗)
 
-Function VerifyZKPWithRevocation(zkp, merkleRoot, merkleRootVersion, holderNonce, verifierNonce, publicAttributes):
-  1. Merkle Rootの検証
-     // Issuerから最新のMerkle Rootを取得
-     latestMerkleRootData = HTTP_GET(issuer.merkle_root_endpoint)
+Function VerifyZKPWithRevocation(zkp, revocationEnabled, merkleRoot, merkleRootVersion, holderNonce, verifierNonce, publicAttributes):
+  // ⚠️ 重要: revocationEnabledフラグの検証
+  //    このフラグはZKP公開入力に含まれており、ZKP回路内で検証済み
+  //    HolderがフラグをVCから抽出し、ZKP回路のConstraint 2で検証される
+  //    ゆえに、revocationEnabledフラグは数学的に信頼できる
 
-     // Issuer署名を検証
-     if !VerifySignature(latestMerkleRootData, issuer.pubkey):
-       return False  // Issuer署名が不正
+  if revocationEnabled == true:
+    // 失効確認有効の場合
 
-     // HolderがZKP生成時に使用したMerkle Rootを取得
-     merkleRootUsedByHolder = GetHistoricalMerkleRoot(merkleRootVersion)
-     if merkleRootUsedByHolder == None:
-       return False  // 無効なバージョン
+    1. Merkle Rootの検証
+       // Issuerから最新のMerkle Rootを取得
+       latestMerkleRootData = HTTP_GET(issuer.merkle_root_endpoint)
 
-     // Issuer署名を検証（過去のMerkle Rootも署名されている）
-     if !VerifySignature(merkleRootUsedByHolder, issuer.pubkey):
-       return False  // Issuer署名が不正
+       // Issuer署名を検証
+       if !VerifySignature(latestMerkleRootData, issuer.pubkey):
+         return False  // Issuer署名が不正
 
-  2. タイムスタンプ検証（Verifier側で実行）
-     // ⭐ 重要: Issuer署名付きのvalidUntilを検証
-     //   Holderが偽造できない（Issuer秘密鍵が必要）
-     if now() > merkleRootUsedByHolder.validUntil:
-       return False  // Merkle Rootの有効期限切れ
+       // HolderがZKP生成時に使用したMerkle Rootを取得
+       merkleRootUsedByHolder = GetHistoricalMerkleRoot(merkleRootVersion)
+       if merkleRootUsedByHolder == None:
+         return False  // 無効なバージョン
 
-     // バージョン確認（タイムラグ許容）
-     // 例: MAX_VERSION_LAG = 5 (5時間分のタイムラグを許容)
-     if latestMerkleRootData.version - merkleRootVersion > MAX_VERSION_LAG:
-       return False  // Merkle Rootが古すぎる
+       // Issuer署名を検証（過去のMerkle Rootも署名されている）
+       if !VerifySignature(merkleRootUsedByHolder, issuer.pubkey):
+         return False  // Issuer署名が不正
 
-     // Merkle Rootの一致確認
-     if merkleRoot != merkleRootUsedByHolder.merkleRoot:
-       return False  // Merkle Root不一致
+    2. タイムスタンプ検証（Verifier側で実行）
+       // ⭐ 重要: Issuer署名付きのvalidUntilを検証
+       //   Holderが偽造できない（Issuer秘密鍵が必要）
+       if now() > merkleRootUsedByHolder.validUntil:
+         return False  // Merkle Rootの有効期限切れ
 
-  3. ZKP検証
-     publicInputs = {
-       merkleRoot,
-       merkleRootVersion,
-       publicAttributes,
-       verifierNonce,
-       holderNonce
-     }
+       // バージョン確認（タイムラグ許容）
+       // 例: MAX_VERSION_LAG = 5 (5時間分のタイムラグを許容)
+       if latestMerkleRootData.version - merkleRootVersion > MAX_VERSION_LAG:
+         return False  // Merkle Rootが古すぎる
 
-     if !VerifyZKP(zkp, publicInputs):
-       return False  // ZKP検証失敗
+       // Merkle Rootの一致確認
+       if merkleRoot != merkleRootUsedByHolder.merkleRoot:
+         return False  // Merkle Root不一致
 
-  4. ナンス検証
-     if verifierNonce != my_sent_nonce:
-       return False  // リプレイ攻撃
+    3. ZKP検証
+       publicInputs = {
+         revocationEnabled: true,
+         merkleRoot: Some(merkleRoot),
+         merkleRootVersion: Some(merkleRootVersion),
+         publicAttributes,
+         verifierNonce,
+         holderNonce
+       }
 
-     // ナンスの一意性を記録（二重使用防止）
-     if IsNonceUsed(holderNonce, verifierNonce):
-       return False
-     RecordNonce(holderNonce, verifierNonce)
+       if !VerifyZKP(zkp, publicInputs):
+         return False  // ZKP検証失敗
 
-  5. 成功
-     return True
+    4. ナンス検証
+       if verifierNonce != my_sent_nonce:
+         return False  // リプレイ攻撃
+
+       // ナンスの一意性を記録（二重使用防止）
+       if IsNonceUsed(holderNonce, verifierNonce):
+         return False
+       RecordNonce(holderNonce, verifierNonce)
+
+    5. 成功
+       return True
+
+  else:
+    // 失効確認無効の場合
+
+    1. Verifierポリシーの確認
+       // ⚠️ Verifierは失効確認が行われていないことを認識
+       //    revocationEnabled = false のVCを受け入れるかどうかは、
+       //    Verifierのポリシー次第
+
+       if !AcceptNonRevocableVC():
+         return False  // 失効確認なしのVCを拒否
+
+    2. ZKP検証（失効確認なし）
+       publicInputs = {
+         revocationEnabled: false,
+         merkleRoot: None,
+         merkleRootVersion: None,
+         publicAttributes,
+         verifierNonce,
+         holderNonce
+       }
+
+       if !VerifyZKP(zkp, publicInputs):
+         return False  // ZKP検証失敗
+
+    3. ナンス検証
+       if verifierNonce != my_sent_nonce:
+         return False  // リプレイ攻撃
+
+       // ナンスの一意性を記録（二重使用防止）
+       if IsNonceUsed(holderNonce, verifierNonce):
+         return False
+       RecordNonce(holderNonce, verifierNonce)
+
+    4. 成功（失効確認なし）
+       LogWarning("Revocation check skipped: revocationEnabled = false")
+       return True
 ```
 
 ### 7.2 オフライン検証モード（災害時）
@@ -700,7 +962,9 @@ Function VerifyZKPOffline(zkp, merkleRoot, publicAttributes):
 
 ### 8.1 credentialStatus拡張
 
-W3C VCの`credentialStatus`フィールドを拡張します：
+W3C VCの`credentialStatus`フィールドを拡張します。
+
+#### 8.1.1 失効確認有効（revocationEnabled = true）の場合
 
 ```json
 {
@@ -715,7 +979,8 @@ W3C VCの`credentialStatus`フィールドを拡張します：
   "credentialSubject": {
     "id": "did:amatelus:xyz789...",
     "name": "山田太郎",
-    "address": "東京都..."
+    "address": "東京都...",
+    "revocationEnabled": true
   },
   "credentialStatus": {
     "id": "https://issuer.example/status/merkle/v1",
@@ -734,6 +999,42 @@ W3C VCの`credentialStatus`フィールドを拡張します：
   }
 }
 ```
+
+#### 8.1.2 失効確認無効（revocationEnabled = false）の場合
+
+個人Issuer向け：
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://amatelus.example/context/revocation/v1"
+  ],
+  "id": "urn:uuid:87654321-4321-4321-4321-cba987654321",
+  "type": ["VerifiableCredential", "PersonalRecommendationCredential"],
+  "issuer": "did:amatelus:individual456...",
+  "issuanceDate": "2025-10-13T00:00:00Z",
+  "credentialSubject": {
+    "id": "did:amatelus:xyz789...",
+    "name": "山田太郎",
+    "recommendation": "優れたエンジニア",
+    "revocationEnabled": false
+  },
+  "proof": {
+    "type": "DataIntegrityProof",
+    "cryptosuite": "eddsa-rdfc-2022",
+    "created": "2025-10-13T00:00:00Z",
+    "verificationMethod": "did:amatelus:individual456...#keys-1",
+    "proofPurpose": "assertionMethod",
+    "proofValue": "z3FkdP4..."
+  }
+}
+```
+
+**注意点**:
+- `revocationEnabled = false`の場合、`credentialStatus`フィールドは省略
+- `credentialSubject`内に`revocationEnabled: false`を含める（Issuer署名で保護）
+- Verifierはこのフラグを確認し、失効確認なしのVCを受け入れるかどうかポリシー判定
 
 ### 8.2 Merkle証明の添付（オプション）
 
@@ -1214,6 +1515,7 @@ FederatedMerkleRoot = MerkleRoot([
 4. **スケーラビリティ**: O(log N)の計算量で大規模運用可能
 5. **災害時の可用性**: オフライン時は失効確認スキップ可能
 6. **W3C VC互換**: credentialStatus拡張として標準準拠
+7. **個人Issuerの対応**: revocationEnabledフラグにより、ウェブサーバーなしでVC発行可能
 
 ### 暗号理論的な安全性保証
 
@@ -1227,6 +1529,20 @@ FederatedMerkleRoot = MerkleRoot([
 | リプレイ攻撃 | 双方向ナンス機構 | ナンスの一意性 |
 
 ### 設計の核心
+
+#### revocationEnabledフラグの重要性
+
+従来設計の問題点：
+- Holderが失効確認結果をZKPに含めなかった場合、Verifierはそもそも失効確認可能なVCかどうかを知ることができない
+- これにより、失効確認をスキップされても検出不可能
+
+本仕様の解決策：
+1. **Issuerがクレームごとに失効確認の可否を含める**（`revocationEnabled`フラグ）
+2. **HolderはZKPに失効確認フラグを入力**（ZKP公開入力に含まれる）
+3. **Verifierは数学的に失効確認の有無を判定可能**（ZKP回路のConstraint 2で検証）
+4. **個人Issuerはサーバー管理不要**（`revocationEnabled = false`のVCを発行可能）
+
+#### タイムスタンプ偽造耐性
 
 ZKP回路内でタイムスタンプを検証しない理由：
 - Holderが制御可能な情報（現在時刻）をZKP回路内で検証しても、暗号理論的に安全でない

@@ -22,7 +22,7 @@ title: AMATELUS
 #email: your-email@example.com
 description: Autonomous Meta Trusted Protocol
 baseurl: "" # the subpath of your site, e.g. /blog
-url: "https://amatelus.github.io/amatelus" # the base hostname & protocol for your site, e.g. http://example.com
+url: "https://amatelus.com" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username:
 github_username: solufa
 repository: amatelus/amatelus

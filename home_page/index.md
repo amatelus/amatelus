@@ -8,7 +8,7 @@ usemathjax: true
 
 Useful links:
 
-* [Blueprint](https://amatelus.github.io/amatelus/blueprint/)
-* [Blueprint as pdf](https://amatelus.github.io/amatelus/blueprint.pdf)
-* [Dependency graph](https://amatelus.github.io/amatelus/blueprint/dep_graph_document.html)
-* [Doc pages for this repository](https://amatelus.github.io/amatelus/docs/)
+* [Blueprint](https://amatelus.com/blueprint/)
+* [Blueprint as pdf](https://amatelus.com/blueprint.pdf)
+* [Dependency graph](https://amatelus.com/blueprint/dep_graph_document.html)
+* [Doc pages for this repository](https://amatelus.com/docs/)

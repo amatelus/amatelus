@@ -24,6 +24,7 @@ import AMATELUS.Roles
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.Operations
+import AMATELUS.JSONSchemaSubset
 
 -- ## プロトコルメッセージ構造
 
@@ -42,22 +43,44 @@ structure VerifierClaim where
 
 /-- Verifierの初期メッセージ
 
-    Phase 1: Verifierがナンス2とクレーム情報を送信
+    Phase 1: Verifierがナンス2、クレーム情報、および要求する属性スキーマを送信
+
+    **requestedAttributes について:**
+    - Verifierが Holder から欲しい公開情報を JSONSchemaSubset で指定（必須）
+    - 名寄せ回避のため、HolderはDIDを平文で送信しない
+    - したがって、Verifierは何らかの識別可能な属性を要求する必要がある
+
+    **実用例:**
+    - Webサービスログイン: serviceAccountID (サービス固有の識別子)
+    - 年齢制限コンテンツ: ageOver18 (年齢証明)
+    - 投票システム: votingToken (二重投票防止) + nationality (資格確認)
+    - ECサイト: membershipLevel (会員ランク) + purchaseHistory (購入履歴)
 -/
 structure VerifierInitialMessage where
   nonce2 : Nonce                          -- Verifierが生成したナンス
   presentedClaims : List VerifierClaim    -- 提示するクレーム情報のリスト
   verifierDID : UnknownDID                       -- Verifierの識別子
+  requestedAttributes : Schema            -- Holderに要求する属性のJSONスキーマ（必須）
   timestamp : Timestamp
-  deriving Repr
 
 /-- Holderの応答メッセージ
 
-    Phase 3: Holderがナンス1とZKPを送信（許可された場合）
+    Phase 3: Holderがナンス1とZKP、および要求された属性データを送信（許可された場合）
+
+    **providedAttributes について:**
+    - Verifierが requestedAttributes で要求した属性に対応するJSONデータ（必須）
+    - スキーマ検証済みのデータのみが含まれる（ValidJSONValue型）
+    - 名寄せ回避のため、DIDは平文で送信されない
+    - 代わりに、サービス固有の識別子や証明したい属性を送信
+
+    **重要な設計思想:**
+    - Holderは要求された属性を提供できない場合、応答自体を返さない（none）
+    - これにより、「属性は提供できないがDIDだけは明かす」という危険な状態を防ぐ
 -/
 structure HolderResponse where
-  nonce1 : Nonce                -- Holderが生成したナンス
-  holderZKP : UnknownZKP  -- ナンス1とナンス2を結合したZKP
+  nonce1 : Nonce                        -- Holderが生成したナンス
+  holderZKP : UnknownZKP                -- ナンス1とナンス2を結合したZKP
+  providedAttributes : ValidJSONValue   -- 要求された属性データ（スキーマ検証済み、必須）
   timestamp : Timestamp
 
 -- ## トラストアンカー検証ロジック
@@ -100,12 +123,19 @@ def validateVerifierMessage (msg : VerifierInitialMessage) (holderWallet : Walle
     この関数は以下の決定的なステップで構成される：
     1. Verifierメッセージの基本検証（決定的）
     2. 人間の判断を外部入力として受け取る（パラメータ）
-    3. 両方がtrueならZKPを生成（amtZKP.proverを使用）
+    3. 両方がtrueならZKPと要求された属性データを生成
 
     **人間の判断（humanApproval）:**
-    - Wallet UIがクレーム情報を表示
+    - Wallet UIがクレーム情報と要求された属性スキーマを表示
     - Holderが「許可」または「拒否」ボタンを押す
     - その結果がBoolとして渡される
+
+    **属性データの提供:**
+    - Verifierが requestedAttributes でスキーマを指定（必須）
+    - Holderは自分のVCから該当する属性を抽出
+    - スキーマ検証を行い、検証成功ならValidJSONValueを応答に含める
+    - 検証失敗または属性を提供できない場合、応答全体を返さない（none）
+    - 現在の実装では簡略化のためダミーデータを返す（TODO: 実装）
 -/
 noncomputable def holderRespond
     (msg : VerifierInitialMessage)
@@ -150,9 +180,19 @@ noncomputable def holderRespond
       zkpType := Sum.inr holderZKPCore
     }
 
+    -- 要求された属性データを準備
+    -- 実装では、Holderが持つVCから該当する属性を抽出し、スキーマ検証を行う
+    -- ここでは簡略化のためダミーデータを返す（TODO: 実装）
+    -- 実際には、スキーマ検証に失敗した場合、この関数全体がnoneを返すべき
+    let providedAttrs : ValidJSONValue := {
+      value := JSONValue.object [("dummy", JSONValue.string "placeholder")]
+      schema := msg.requestedAttributes
+    }
+
     some {
       nonce1 := nonce1
       holderZKP := zkp
+      providedAttributes := providedAttrs
       timestamp := { unixTime := 0 }  -- プレースホルダ
     }
   else
@@ -290,21 +330,51 @@ noncomputable def executeMutualAuth
 /-- 実装要件: 相互認証プロトコル
 
     **Phase 1: Verifierの初期メッセージ**
+
+    例1: 年齢制限サービス（酒類販売）
     ```
     Verifier → Holder:
     {
-      nonce2: random(),  // 必須：暗号学的ランダムナンス
+      nonce2: random(),
       presentedClaims: [
         {
-          claimData: { data: "警察官資格", claimID: Some "police_officer" },
-          issuerDID: "did:amt:police_hq"  // 警察庁のDID
-        },
-        {
-          claimData: { data: "管轄区域：東京都", claimID: Some "jurisdiction" },
-          issuerDID: "did:amt:police_hq"  // 警察庁のDID（自己署名可）
+          claimData: { data: "酒類販売許可", claimID: Some "liquor_license" },
+          issuerDID: "did:amt:liquor_authority"
         }
       ],
-      verifierDID: "did:amt:officer123",
+      verifierDID: "did:amt:liquor_shop_xyz",
+      requestedAttributes: {  // 必須：年齢証明
+        type: ["object"],
+        properties: {
+          ageOver20: { type: ["boolean"], const: true },
+          purchaseToken: { type: ["string"] }  // 購入トークン（名寄せ回避）
+        },
+        required: ["ageOver20", "purchaseToken"]
+      },
+      timestamp: now()
+    }
+    ```
+
+    例2: Webサービスログイン
+    ```
+    Verifier → Holder:
+    {
+      nonce2: random(),
+      presentedClaims: [
+        {
+          claimData: { data: "SNSサービス", claimID: Some "social_service" },
+          issuerDID: "did:amt:sns_provider"
+        }
+      ],
+      verifierDID: "did:amt:sns_app",
+      requestedAttributes: {  // 必須：サービス固有ID
+        type: ["object"],
+        properties: {
+          serviceAccountID: { type: ["string"] },  // サービス固有の識別子
+          lastLoginTimestamp: { type: ["integer"] }
+        },
+        required: ["serviceAccountID"]
+      },
       timestamp: now()
     }
     ```
@@ -314,52 +384,98 @@ noncomputable def executeMutualAuth
     1. Wallet UIが以下を表示：
        - Verifierが提示したクレーム情報
        - 各クレームの発行者（トラストアンカー名）
-       - 「このVerifierに情報を提供しますか？」
+       - Verifierが要求する属性スキーマ（requestedAttributes）
+         例: 「年齢が20歳以上、日本国籍」
+       - 「このVerifierに以下の情報を提供しますか？」
 
     2. Holderが判断：
+       - 自分が要求された属性を提供できるか確認
        - 許可ボタン → humanApproval = true
        - 拒否ボタン → humanApproval = false
 
     3. 許可された場合のみ応答生成
+       - Holderは自分のVCから該当する属性を抽出
+       - スキーマ検証を行い、ValidJSONValueとして構築
 
     **Phase 3: Holderの応答**
+
+    例1: 年齢制限サービスへの応答
     ```
     Holder → Verifier:
     {
-      nonce1: random(),  // Holderが生成したナンス
+      nonce1: random(),
       holderZKP: {
         core: {
           proof: π,
-          publicInput: nonce2 || nonce1,  // 両方のナンスを結合
+          publicInput: nonce2 || nonce1,
           proofPurpose: "credential-presentation",
           created: now()
         },
         holderNonce: nonce1,
         verifierNonce: nonce2,
-        claimedAttributes: "Identity verification"
+        claimedAttributes: "Age verification for liquor purchase"
+      },
+      providedAttributes: {  // 必須：スキーマ検証済み
+        value: {
+          ageOver20: true,
+          purchaseToken: "abc123xyz"  // 一時的な購入トークン
+        },
+        schema: <requestedAttributes>
       },
       timestamp: now()
     }
     ```
+
+    例2: Webサービスログインへの応答
+    ```
+    Holder → Verifier:
+    {
+      nonce1: random(),
+      holderZKP: { /* ... */ },
+      providedAttributes: {  // 必須：スキーマ検証済み
+        value: {
+          serviceAccountID: "user_sns_001",  // このサービス専用のID
+          lastLoginTimestamp: 1704067200
+        },
+        schema: <requestedAttributes>
+      },
+      timestamp: now()
+    }
+    ```
+
+    **重要:** DIDは平文で送信されない。代わりに、サービス固有の識別子を使用。
 
     **セキュリティ保証:**
     - トラストアンカー検証: Wallet内の辞書で検証
     - 人間中心: 最終判断はHolderが行う
     - 偽警官対策: 信頼できない発行者のクレームは拒否
     - リプレイ攻撃対策: 両方のナンスを結合してZKP生成
+    - スキーマ検証: 要求された属性データはJSONSchemaで検証済み（必須）
+    - 選択的開示: HolderはVerifierが要求した属性のみを提供
+    - 名寄せ回避: DIDを平文で送信せず、サービス固有の識別子を使用
+    - プライバシー保護: 属性を提供できない場合、応答全体を返さない
 -/
 def mutualAuthenticationRequirements : String :=
   "Mutual Authentication Protocol:
-   Phase 1: Verifier sends nonce2 and presented claims with issuer DIDs
+   Phase 1: Verifier sends nonce2, presented claims with issuer DIDs,
+    and requestedAttributes (JSON Schema, required)
    Phase 2: Holder validates all claim issuers against TrustAnchorDict
            If any issuer is untrusted, protocol terminates
-           If all trusted, Wallet UI displays info and waits for human approval
+           If all trusted, Wallet UI displays info, requested attributes,
+              and waits for human approval
            If rejected, protocol terminates
-           If approved, generate nonce1 and ZKP
-   Phase 3: Holder sends nonce1 and ZKP (combining nonce1 and nonce2)
+           If approved, extract requested attributes from VCs, validate against schema,
+              generate nonce1 and ZKP
+           If schema validation fails or attributes unavailable, protocol terminates
+   Phase 3: Holder sends nonce1, ZKP (combining nonce1 and nonce2),
+     and providedAttributes (ValidJSONValue, required)
 
    Security guarantees:
    - Trust anchor validation: Dictionary lookup in Wallet
    - Human-centric: Final decision by Holder
    - Fake verifier protection: Untrusted issuer claims rejected
-   - Replay attack protection: Both nonces combined in ZKP"
+   - Replay attack protection: Both nonces combined in ZKP
+   - Schema validation: Provided attributes validated against JSON Schema (required)
+   - Selective disclosure: Holder provides only requested attributes
+   - Privacy protection: DID not sent in plaintext; service-specific identifiers used instead
+   - Fail-safe design: If attributes unavailable, entire response is withheld"

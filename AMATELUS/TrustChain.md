@@ -1269,7 +1269,7 @@ structure DelegationContent where
   grantorDID : ValidDID
   granteeDID : ValidDID  -- Holder中心設計では歴史的情報
   label : String         -- 人間向けの表示ラベル（例: "住民票", "Resident Certificate"）、機能を持たない
-  claimSchema : Schema   -- JSONSchema_Subset準拠、委任内容の正式な定義
+  claimSchema : Schema   -- JSONSchemaSubset準拠、委任内容の正式な定義
   maxDepth : Nat         -- 最大委任階層数（1以上）
   deriving Repr
 
@@ -2046,7 +2046,7 @@ AMATELUSプロトコルは、従来のVC issuerベースの信頼モデルでは
 ## 9. References
 
 - **W3C Verifiable Credentials Data Model 1.1**: https://www.w3.org/TR/vc-data-model/
-- **AMATELUS JSON Schema Subset**: [AMATELUS/JSONSchema_Subset.md](./JSONSchema_Subset.md)
+- **AMATELUS JSON Schema Subset**: [AMATELUS/JSONSchemaSubset.md](./JSONSchemaSubset.md)
 - **AMATELUS VC Definition**: [AMATELUS/VC.lean](./VC.lean)
 - **JSON Schema 2020-12**: https://json-schema.org/draft/2020-12/json-schema-core
 

@@ -4,7 +4,7 @@
 このファイルは、AMATELUS プロトコル用の JSON Schema サブセットの Lean 形式化を含みます。
 
 ## 参考文献
-- AMATELUS JSON Schema Subset: AMATELUS/JSONSchema_Subset.md
+- AMATELUS JSON Schema Subset: AMATELUS/JSONSchemaSubset.md
 - JSON Schema 2020-12 (Base): https://json-schema.org/draft/2020-12/json-schema-core
 - JSON Schema Validation: https://json-schema.org/draft/2020-12/json-schema-validation
 

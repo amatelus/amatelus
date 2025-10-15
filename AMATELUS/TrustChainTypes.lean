@@ -13,7 +13,7 @@
 -/
 
 import AMATELUS.DID
-import AMATELUS.JSONSchema
+import AMATELUS.JSONSchemaSubset
 
 /-- 初期最大信頼チェーン深さ（N階層対応）
 

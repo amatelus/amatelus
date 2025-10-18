@@ -1,0 +1,720 @@
+---
+layout: default
+usemathjax: true
+---
+
+<div class="amatelus-hero">
+  <h1>AMATELUS Protocol</h1>
+  <p class="tagline">Autonomous Meta-Trusted Cryptographic Identity System</p>
+  <p class="subtitle">Decentralized, Privacy-Preserving Identity Verification Without Blockchain</p>
+</div>
+
+<!-- Quick Overview Section -->
+<section class="quick-overview">
+  <h2>What is AMATELUS?</h2>
+  <p>AMATELUS is a <strong>decentralized identity protocol</strong> that enables secure, privacy-preserving identity verification without relying on blockchain, centralized authorities, or external registries.</p>
+
+  <div class="feature-cards">
+    <div class="feature-card">
+      <div class="feature-icon">🔐</div>
+      <h3>Cryptographically Secure</h3>
+      <p>DID (Decentralized Identifier) generation using SHA3-512 hash functions ensures permanent uniqueness and post-quantum collision resistance.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">👤</div>
+      <h3>Privacy-First Design</h3>
+      <p>No central registry means your identities cannot be enumerated or tracked across services. Use different DIDs with different service providers.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">🤝</div>
+      <h3>Zero-Knowledge Proofs</h3>
+      <p>Prove attributes and credentials without revealing personal information. Verify that you meet requirements without disclosing the details.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <h3>Offline-First Resolution</h3>
+      <p>DIDs resolve locally. No network calls to central authorities. You can verify identities completely offline when needed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Core Components Section -->
+<section class="core-components">
+  <h2>Core Components</h2>
+
+  <div class="component">
+    <h3>1. Decentralized Identifiers (DIDs)</h3>
+    <div class="component-content">
+      <p><strong>Format:</strong> <code>did:amt:XXXXXXXXXXXXX</code></p>
+      <p>A unique identifier algorithmically generated from your public key and version number. No registration required. Generated and controlled entirely by you.</p>
+      <ul>
+        <li>Uses Ed25519 cryptographic signatures (v0)</li>
+        <li>Encoded with Crockford's Base32 for human readability</li>
+        <li>Immutable once created</li>
+        <li>Ready for post-quantum cryptography upgrade (PQC)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="component">
+    <h3>2. Verifiable Credentials (VCs)</h3>
+    <div class="component-content">
+      <p>Digital certificates issued by trusted parties (governments, banks, employers, etc.) that attest to your attributes or qualifications.</p>
+      <ul>
+        <li>Cryptographically signed by the issuer</li>
+        <li>Can be stored in your wallet application</li>
+        <li>Includes validity periods and revocation information</li>
+        <li>Interoperable with W3C VC standards</li>
+      </ul>
+      <p><strong>Examples:</strong> Government ID, University degree, Banking certificate, Age verification</p>
+    </div>
+  </div>
+
+  <div class="component">
+    <h3>3. Zero-Knowledge Proofs (ZKPs)</h3>
+    <div class="component-content">
+      <p>Cryptographic proofs that allow you to prove claims about yourself without revealing the underlying information.</p>
+      <ul>
+        <li>Prove "I am over 18" without revealing your birth date</li>
+        <li>Prove "I am a resident of Japan" without revealing your address</li>
+        <li>Prove "I have a valid license" without showing the license number</li>
+      </ul>
+      <p>Service providers can verify these claims instantly, locally, without contacting authorities.</p>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works Section -->
+<section class="how-it-works">
+  <h2>How It Works</h2>
+
+  <div class="workflow-step">
+    <div class="step-number">1</div>
+    <div class="step-content">
+      <h3>Generate Your Identity</h3>
+      <p>You create a DID by generating a cryptographic key pair on your device. Your public key is hashed to create a unique identifier.</p>
+    </div>
+  </div>
+
+  <div class="workflow-step">
+    <div class="step-number">2</div>
+    <div class="step-content">
+      <h3>Obtain Credentials</h3>
+      <p>Trusted issuers (governments, financial institutions, etc.) can issue Verifiable Credentials to your DID, attesting to your attributes or qualifications.</p>
+    </div>
+  </div>
+
+  <div class="workflow-step">
+    <div class="step-number">3</div>
+    <div class="step-content">
+      <h3>Store in Your Wallet</h3>
+      <p>Your DIDs and credentials are stored in a wallet application on your device. You maintain complete control—nothing is stored on centralized servers.</p>
+    </div>
+  </div>
+
+  <div class="workflow-step">
+    <div class="step-number">4</div>
+    <div class="step-content">
+      <h3>Prove Your Claims</h3>
+      <p>When a service requires verification, use zero-knowledge proofs to prove you have the necessary credentials without revealing unnecessary details.</p>
+    </div>
+  </div>
+
+  <div class="workflow-step">
+    <div class="step-number">5</div>
+    <div class="step-content">
+      <h3>Instant Verification</h3>
+      <p>Service providers verify your proofs using your public key—completely offline and without contacting any central authority.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Key Differences Section -->
+<section class="key-differences">
+  <h2>Why AMATELUS is Different</h2>
+
+  <div class="comparison-table">
+    <div class="comparison-row header">
+      <div class="comparison-cell feature">Feature</div>
+      <div class="comparison-cell">AMATELUS</div>
+      <div class="comparison-cell">Blockchain DIDs</div>
+      <div class="comparison-cell">Centralized Systems</div>
+    </div>
+
+    <div class="comparison-row">
+      <div class="comparison-cell feature">External Registry</div>
+      <div class="comparison-cell">❌ Not needed</div>
+      <div class="comparison-cell">✓ Blockchain required</div>
+      <div class="comparison-cell">✓ Central server</div>
+    </div>
+
+    <div class="comparison-row">
+      <div class="comparison-cell feature">Privacy</div>
+      <div class="comparison-cell">✓ Excellent</div>
+      <div class="comparison-cell">⚠ Public ledger</div>
+      <div class="comparison-cell">❌ Surveilled</div>
+    </div>
+
+    <div class="comparison-row">
+      <div class="comparison-cell feature">Resolution Cost</div>
+      <div class="comparison-cell">❌ Free (local)</div>
+      <div class="comparison-cell">✓ Network fees</div>
+      <div class="comparison-cell">✓ Infrastructure costs</div>
+    </div>
+
+    <div class="comparison-row">
+      <div class="comparison-cell feature">Offline Capability</div>
+      <div class="comparison-cell">✓ Full support</div>
+      <div class="comparison-cell">❌ No</div>
+      <div class="comparison-cell">❌ No</div>
+    </div>
+
+    <div class="comparison-row">
+      <div class="comparison-cell feature">Scalability</div>
+      <div class="comparison-cell">✓ Unlimited</div>
+      <div class="comparison-cell">⚠ Limited</div>
+      <div class="comparison-cell">⚠ Limited</div>
+    </div>
+  </div>
+</section>
+
+<!-- Use Cases Section -->
+<section class="use-cases">
+  <h2>Use Cases</h2>
+
+  <div class="use-case">
+    <h3>🏦 Banking & Finance</h3>
+    <p>Customers prove identity and compliance requirements to banks without the bank accessing centralized databases. KYC verification becomes instant and private.</p>
+  </div>
+
+  <div class="use-case">
+    <h3>🏛️ Government Services</h3>
+    <p>Citizens can prove eligibility for benefits, licenses, or permits without revealing sensitive personal information. Complete audit trail with privacy.</p>
+  </div>
+
+  <div class="use-case">
+    <h3>🎓 Education</h3>
+    <p>Universities issue digital diplomas and credentials. Graduates can prove their qualifications to employers without the employer contacting the university.</p>
+  </div>
+
+  <div class="use-case">
+    <h3>🏥 Healthcare</h3>
+    <p>Patients prove medical qualifications or eligibility for treatments while keeping sensitive health records completely private.</p>
+  </div>
+
+  <div class="use-case">
+    <h3>🗳️ Voting Systems</h3>
+    <p>Voters prove eligibility (citizenship, age, residency) with zero knowledge of individual identity. Complete privacy with verifiable outcomes.</p>
+  </div>
+
+  <div class="use-case">
+    <h3>🏷️ Access Control</h3>
+    <p>Physical or digital access (venues, facilities, networks) can verify claims about visitors without storing personal data.</p>
+  </div>
+</section>
+
+<!-- Key Properties Section -->
+<section class="key-properties">
+  <h2>Formal Properties (Proven)</h2>
+
+  <div class="property">
+    <h3>Cryptographic Integrity</h3>
+    <p>DID generation, VC issuance, and ZKP generation are cryptographically secure and mathematically verified.</p>
+  </div>
+
+  <div class="property">
+    <h3>Trust Propagation</h3>
+    <p>Trust chains through credential issuance are mathematically sound. You can verify the entire chain of trust.</p>
+  </div>
+
+  <div class="property">
+    <h3>Privacy Protection</h3>
+    <p>Using different DIDs prevents cross-service linking. No central authority can track your activities across platforms.</p>
+  </div>
+
+  <div class="property">
+    <h3>Audit Mechanism</h3>
+    <p>Appropriate audit capabilities exist for specific contexts (like government service fraud prevention) without compromising privacy.</p>
+  </div>
+
+  <div class="property">
+    <h3>External Independence</h3>
+    <p>DID resolution doesn't depend on external services, blockchains, or DNS. Complete self-sovereignty.</p>
+  </div>
+
+  <div class="property">
+    <h3>Revocation Independence</h3>
+    <p>Credential verification doesn't require checking real-time revocation lists. Security is independent of revocation service availability.</p>
+  </div>
+</section>
+
+<!-- What AMATELUS Does NOT Provide Section -->
+<section class="not-provided">
+  <h2>What AMATELUS Does NOT Provide</h2>
+
+  <p>It's important to understand the protocol's scope and limitations:</p>
+
+  <div class="limitation">
+    <h3>❌ Directory Service</h3>
+    <p>There's no central registry to "look up" someone's identity. This is intentional—it protects privacy. DIDs are only known to those the owner shares them with.</p>
+  </div>
+
+  <div class="limitation">
+    <h3>❌ Message Transport Layer</h3>
+    <p>AMATELUS doesn't handle how messages get from your wallet to a service provider. That's the responsibility of each service. (Usually HTTPS/TLS)</p>
+  </div>
+
+  <div class="limitation">
+    <h3>❌ Authorization Decisions</h3>
+    <p>After identity is verified, whether to grant access or services is entirely up to the service provider. AMATELUS only handles identity verification.</p>
+  </div>
+
+  <div class="limitation">
+    <h3>❌ Endpoint Management</h3>
+    <p>How to contact a service provider (email, phone, API endpoint) is not part of AMATELUS. Each service manages its own contact methods.</p>
+  </div>
+</section>
+
+<!-- Technical Specifications Section -->
+<section class="technical-specs">
+  <h2>Technical Specifications</h2>
+
+  <div class="spec-group">
+    <h3>Current Version (v0)</h3>
+    <ul>
+      <li><strong>Hash Function:</strong> SHA3-512 (post-quantum resistant)</li>
+      <li><strong>Signature Algorithm:</strong> Ed25519 (modern, efficient)</li>
+      <li><strong>Encoding:</strong> Crockford's Base32 (human-readable)</li>
+      <li><strong>Data Format:</strong> JSON-LD (W3C compliant)</li>
+      <li><strong>Standards:</strong> W3C DID Core, W3C Verifiable Credentials</li>
+    </ul>
+  </div>
+
+  <div class="spec-group">
+    <h3>Future Direction (Post-Quantum)</h3>
+    <p>AMATELUS is designed with "cryptographic agility" for future evolution:</p>
+    <ul>
+      <li><strong>v1+ Planned:</strong> Post-Quantum Cryptography (PQC) signatures</li>
+      <li><strong>Format Evolution:</strong> CBOR binary format for PQC large key sizes</li>
+      <li><strong>Backward Compatibility:</strong> Version numbers enable interoperability during transition</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Resources Section -->
+<section class="resources">
+  <h2>Resources & Documentation</h2>
+
+  <div class="resource-link">
+    <strong><a href="blueprint/">📖 Full Specification (Blueprint)</a></strong>
+    <p>Complete technical documentation with formal proofs, cryptographic definitions, and detailed protocol specifications.</p>
+  </div>
+
+  <div class="resource-link">
+    <strong><a href="blueprint.pdf">📄 PDF Version</a></strong>
+    <p>Downloadable PDF of the complete blueprint for offline reading.</p>
+  </div>
+
+  <div class="resource-link">
+    <strong><a href="blueprint/dep_graph_document.html">🔗 Dependency Graph</a></strong>
+    <p>Visual representation of how different components and definitions relate to each other.</p>
+  </div>
+
+  <div class="resource-link">
+    <strong><a href="docs/">📚 API Documentation</a></strong>
+    <p>Developer documentation for implementation and integration.</p>
+  </div>
+
+  <div class="resource-link">
+    <strong><a href="https://github.com/solufa/amatelus">💻 GitHub Repository</a></strong>
+    <p>Source code and open issues. Community contributions welcome.</p>
+  </div>
+</section>
+
+<style>
+  .amatelus-hero {
+    text-align: center;
+    padding: 60px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px;
+    margin-bottom: 40px;
+  }
+
+  .amatelus-hero h1 {
+    font-size: 3em;
+    margin: 0 0 10px 0;
+    font-weight: 700;
+  }
+
+  .amatelus-hero .tagline {
+    font-size: 1.3em;
+    margin: 10px 0;
+    font-weight: 600;
+  }
+
+  .amatelus-hero .subtitle {
+    font-size: 1.1em;
+    opacity: 0.95;
+    margin-top: 15px;
+  }
+
+  .quick-overview {
+    margin-bottom: 50px;
+  }
+
+  .quick-overview h2 {
+    border-bottom: 3px solid #667eea;
+    padding-bottom: 10px;
+  }
+
+  .feature-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-top: 30px;
+  }
+
+  .feature-card {
+    background: #f6f8fb;
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+    transition: transform 0.3s ease;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  }
+
+  .feature-icon {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+  }
+
+  .feature-card h3 {
+    color: #333;
+    margin: 10px 0;
+  }
+
+  .feature-card p {
+    color: #666;
+    font-size: 0.95em;
+    line-height: 1.5;
+  }
+
+  .core-components {
+    margin-bottom: 50px;
+  }
+
+  .core-components h2 {
+    border-bottom: 3px solid #764ba2;
+    padding-bottom: 10px;
+  }
+
+  .component {
+    background: #fafbfc;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 6px;
+    border-left: 4px solid #764ba2;
+  }
+
+  .component h3 {
+    color: #333;
+    margin-top: 0;
+  }
+
+  .component-content p {
+    margin: 10px 0;
+  }
+
+  .component ul {
+    margin: 15px 0;
+    padding-left: 20px;
+  }
+
+  .component li {
+    margin: 8px 0;
+    color: #555;
+  }
+
+  .how-it-works {
+    margin-bottom: 50px;
+    background: #f0f4f8;
+    padding: 30px;
+    border-radius: 8px;
+  }
+
+  .how-it-works h2 {
+    text-align: center;
+    margin-top: 0;
+  }
+
+  .workflow-step {
+    display: flex;
+    gap: 20px;
+    margin: 25px 0;
+    align-items: flex-start;
+  }
+
+  .step-number {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    background: #667eea;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2em;
+  }
+
+  .step-content h3 {
+    margin: 0 0 8px 0;
+  }
+
+  .step-content p {
+    margin: 0;
+    color: #555;
+  }
+
+  .key-differences {
+    margin-bottom: 50px;
+  }
+
+  .key-differences h2 {
+    border-bottom: 3px solid #667eea;
+    padding-bottom: 10px;
+  }
+
+  .comparison-table {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 20px;
+  }
+
+  .comparison-row {
+    display: grid;
+    grid-template-columns: 200px repeat(3, 1fr);
+    border-bottom: 1px solid #eee;
+  }
+
+  .comparison-row:last-child {
+    border-bottom: none;
+  }
+
+  .comparison-row.header {
+    background: #667eea;
+    color: white;
+    font-weight: bold;
+  }
+
+  .comparison-row:nth-child(even) {
+    background: #f9f9f9;
+  }
+
+  .comparison-cell {
+    padding: 15px;
+    border-right: 1px solid #eee;
+  }
+
+  .comparison-row.header .comparison-cell {
+    border-right-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .comparison-cell:last-child {
+    border-right: none;
+  }
+
+  .comparison-cell.feature {
+    font-weight: 600;
+    color: #333;
+  }
+
+  .use-cases {
+    margin-bottom: 50px;
+  }
+
+  .use-cases h2 {
+    border-bottom: 3px solid #764ba2;
+    padding-bottom: 10px;
+  }
+
+  .use-case {
+    background: #fff;
+    border: 1px solid #ddd;
+    padding: 20px;
+    margin: 15px 0;
+    border-radius: 6px;
+    border-left: 4px solid #764ba2;
+  }
+
+  .use-case h3 {
+    margin: 0 0 10px 0;
+  }
+
+  .use-case p {
+    margin: 0;
+    color: #666;
+  }
+
+  .key-properties {
+    margin-bottom: 50px;
+  }
+
+  .key-properties h2 {
+    border-bottom: 3px solid #667eea;
+    padding-bottom: 10px;
+  }
+
+  .property {
+    background: #e8eef7;
+    padding: 15px 20px;
+    margin: 12px 0;
+    border-radius: 6px;
+    border-left: 4px solid #667eea;
+  }
+
+  .property h3 {
+    margin: 0 0 8px 0;
+  }
+
+  .property p {
+    margin: 0;
+    color: #555;
+  }
+
+  .not-provided {
+    margin-bottom: 50px;
+    background: #fef5f5;
+    padding: 30px;
+    border-radius: 8px;
+  }
+
+  .not-provided h2 {
+    color: #d32f2f;
+  }
+
+  .limitation {
+    background: white;
+    padding: 15px 20px;
+    margin: 15px 0;
+    border-radius: 6px;
+    border-left: 4px solid #d32f2f;
+  }
+
+  .limitation h3 {
+    margin: 0 0 8px 0;
+    color: #333;
+  }
+
+  .limitation p {
+    margin: 0;
+    color: #666;
+  }
+
+  .technical-specs {
+    margin-bottom: 50px;
+  }
+
+  .technical-specs h2 {
+    border-bottom: 3px solid #764ba2;
+    padding-bottom: 10px;
+  }
+
+  .spec-group {
+    background: #f5f5f5;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 6px;
+  }
+
+  .spec-group h3 {
+    margin-top: 0;
+  }
+
+  .spec-group ul {
+    margin: 10px 0;
+    padding-left: 20px;
+  }
+
+  .spec-group li {
+    margin: 8px 0;
+  }
+
+  .resources {
+    margin-bottom: 50px;
+  }
+
+  .resources h2 {
+    border-bottom: 3px solid #667eea;
+    padding-bottom: 10px;
+  }
+
+  .resource-link {
+    background: #f0f4f8;
+    padding: 20px;
+    margin: 15px 0;
+    border-radius: 6px;
+    border-left: 4px solid #667eea;
+  }
+
+  .resource-link strong {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 1.05em;
+  }
+
+  .resource-link a {
+    color: #667eea;
+    text-decoration: none;
+  }
+
+  .resource-link a:hover {
+    text-decoration: underline;
+  }
+
+  .resource-link p {
+    margin: 0;
+    color: #666;
+  }
+
+  @media (max-width: 768px) {
+    .amatelus-hero h1 {
+      font-size: 2em;
+    }
+
+    .amatelus-hero .tagline {
+      font-size: 1.1em;
+    }
+
+    .comparison-row {
+      grid-template-columns: 150px repeat(3, 1fr);
+      font-size: 0.9em;
+    }
+
+    .comparison-cell {
+      padding: 10px;
+    }
+
+    .feature-cards {
+      grid-template-columns: 1fr;
+    }
+
+    .workflow-step {
+      flex-direction: column;
+    }
+
+    .step-number {
+      margin-bottom: 0;
+    }
+  }
+</style>

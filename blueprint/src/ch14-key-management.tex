@@ -56,7 +56,7 @@ Secret key issues fall into five categories:
 
 Holder sends to \textbf{all Issuers} that issued VCs:
 
-\begin{lstlisting}[language=json]
+\begin{verbatim}
 {
   "requestType": "revocationDueToLeakage",
   "oldDID": "did:amatelus:old123...",
@@ -65,7 +65,7 @@ Holder sends to \textbf{all Issuers} that issued VCs:
   "revocationReason": "Secret key leakage suspected",
   "signatureByOldKey": "signature(oldSK, hash(oldDID || newDID || timestamp))"
 }
-\end{lstlisting}
+\end{verbatim}
 
 Cryptographic guarantee:
 \begin{itemize}
@@ -185,7 +185,7 @@ Issuer checks:
 
 \textbf{Step 3: DID Migration VC Issuance}
 
-\begin{lstlisting}[language=json]
+\begin{verbatim}
 {
   "@context": ["https://www.w3.org/2018/credentials/v1"],
   "type": ["VerifiableCredential", "DIDMigrationCredential"],
@@ -209,7 +209,7 @@ Issuer checks:
     "verificationMethod": "did:amatelus:police-station-tokyo#key-1"
   }
 }
-\end{lstlisting}
+\end{verbatim}
 
 \textbf{Step 4: Re-issuance from Other Issuers}
 
@@ -328,7 +328,7 @@ DIDs without identity-credential linkage are effectively unrecoverable if lost.
 
 \subsubsection{Step 2: DID Update Notification}
 
-\begin{lstlisting}[language=json]
+\begin{verbatim}
 {
   "requestType": "didUpdate",
   "oldDID": "did:amatelus:old123...",
@@ -340,7 +340,7 @@ DIDs without identity-credential linkage are effectively unrecoverable if lost.
   "signatureByNewKey": "...",
   "requestedAction": "issueNewVCWithNewDID"
 }
-\end{lstlisting}
+\end{verbatim}
 
 Cryptographic guarantee:
 \begin{itemize}
@@ -507,7 +507,7 @@ Guardianship:
 
 \subsubsection{Municipality Guardian VC Issuance}
 
-\begin{lstlisting}[language=json]
+\begin{verbatim}
 {
   "@context": ["https://www.w3.org/2018/credentials/v1"],
   "type": ["VerifiableCredential", "GuardianCredential"],
@@ -533,7 +533,7 @@ Guardianship:
     "expirationDate": "2026-10-14T23:59:59Z"
   }
 }
-\end{lstlisting}
+\end{verbatim}
 
 Key fields:
 \begin{itemize}
@@ -716,7 +716,7 @@ Verifier verification:
 
 With old key signature capability, revocation is cryptographically deterministic.
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 theorem leakage_revocation_possible
     (holder : Holder)
     (oldSK : SecretKey)
@@ -730,11 +730,11 @@ theorem leakage_revocation_possible
       issuer.hasVC oldDID →
         Verifiable revocationProof ∧
         issuer.canRevoke oldDID revocationProof
-\end{lstlisting}
+\end{verbatim}
 
 \subsection{Theorem: Recovery Impossibility Without Identity Credential}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 theorem recovery_impossible_without_identity_credential
     (holder : Holder)
     (oldDID : DID)
@@ -745,7 +745,7 @@ theorem recovery_impossible_without_identity_credential
       vc.subject = oldDID) :
   ¬∃ (issuer : Issuer),
     issuer.canVerifyRecovery oldDID newDID
-\end{lstlisting}
+\end{verbatim}
 
 Result: Safe recovery is information-theoretically impossible.
 

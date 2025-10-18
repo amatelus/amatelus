@@ -107,14 +107,14 @@ For countries without national ID systems, AHI functionality is unavailable, but
 
 \subsection{Audit Section Identifier}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 structure AuditCategoryId where
   id : String
   purpose : String              -- e.g., "taxation", "benefits", "licensing"
   issuer : ValidDID             -- Government or audit authority DID
   issuedAt : Nat                -- Issuance timestamp
   deriving Repr, DecidableEq
-\end{lstlisting}
+\end{verbatim}
 
 Properties:
 \begin{itemize}
@@ -126,13 +126,13 @@ Properties:
 
 \subsection{Anonymous Hash Identifier}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 def generateAnonymousHashId
     (categoryId : AuditCategoryId)
     (myNumber : String) : ByteArray :=
   -- Post-quantum cryptography resistant hash function
   Hash.pqcHash (categoryId.id ++ "||" ++ myNumber)
-\end{lstlisting}
+\end{verbatim}
 
 Mathematical definition:
 \[
@@ -153,7 +153,7 @@ Properties:
 
 \textbf{Important}: This VC is required only when using AHI. Services not requiring AHI do not need it.
 
-\begin{lstlisting}[language=json]
+\begin{verbatim}
 {
   "@context": ["https://www.w3.org/2018/credentials/v1"],
   "type": ["VerifiableCredential", "HouseholdCredential"],
@@ -172,7 +172,7 @@ Properties:
     "proofValue": "..."
   }
 }
-\end{lstlisting}
+\end{verbatim}
 
 Critical design:
 \begin{itemize}
@@ -183,7 +183,7 @@ Critical design:
 
 \subsection{Zero-Knowledge Proof for AHI}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 structure AnonymousHashZKP where
   -- Public inputs
   publicInputs : {
@@ -200,7 +200,7 @@ structure AnonymousHashZKP where
   -- ZKP proof data
   proof : ZKProof
   deriving Repr
-\end{lstlisting}
+\end{verbatim}
 
 Proof contents verified within ZKP circuit:
 \begin{enumerate}
@@ -334,11 +334,11 @@ Citizen Wallet      Government Registry    Service Provider
 \end{enumerate}
 
 Reverse lookup algorithm:
-\begin{lstlisting}
+\begin{verbatim}
 For each nationalID in municipality_database:
   if Hash(auditSectionID || nationalID) == suspicious_AHI:
     return nationalID  // Individual identified
-\end{lstlisting}
+\end{verbatim}
 
 Sequence diagram:
 \begin{verbatim}
@@ -540,7 +540,7 @@ Different private services & Different service IDs $\Rightarrow$ Different hashe
 
 \subsubsection{Required Functions}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 class AuditWallet where
   -- Household VC storage
   storeHouseholdVC : HouseholdVC → IO Unit
@@ -553,7 +553,7 @@ class AuditWallet where
 
   -- Secure national ID storage (encrypted)
   secureStore : EncryptedData → IO Unit
-\end{lstlisting}
+\end{verbatim}
 
 \subsubsection{Security Requirements}
 
@@ -568,7 +568,7 @@ class AuditWallet where
 
 \subsubsection{Database Schema}
 
-\begin{lstlisting}[language=sql]
+\begin{verbatim}
 CREATE TABLE anonymous_hash_identifiers (
   hash_id BYTEA PRIMARY KEY,
   audit_category_id VARCHAR(255) NOT NULL,
@@ -578,11 +578,11 @@ CREATE TABLE anonymous_hash_identifiers (
   INDEX idx_category (audit_category_id),
   INDEX idx_blacklist (is_blacklisted)
 );
-\end{lstlisting}
+\end{verbatim}
 
 \subsubsection{ZKP Verification}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 def verifyServiceRequest
     (hashId : ByteArray)
     (zkp : AnonymousHashZKP)
@@ -605,7 +605,7 @@ def verifyServiceRequest
 
   -- 5. Issue service token
   issueServiceToken hashId
-\end{lstlisting}
+\end{verbatim}
 
 \subsubsection{Performance Optimization}
 
@@ -619,7 +619,7 @@ def verifyServiceRequest
 
 \subsubsection{Reverse Lookup}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 def reverseLookup
     (hashId : ByteArray)
     (categoryId : AuditCategoryId)
@@ -640,7 +640,7 @@ def reverseLookup
       return some myNumber
 
   return none
-\end{lstlisting}
+\end{verbatim}
 
 \subsubsection{Security Requirements}
 
@@ -655,7 +655,7 @@ def reverseLookup
 
 \subsection{Theorem: Anti-Linkability Across Audit Domains}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 theorem different_categories_prevent_linkability
     (myNumber : String)
     (cat1 cat2 : AuditCategoryId)
@@ -667,13 +667,13 @@ theorem different_categories_prevent_linkability
   apply Hash.collision_resistance
   simp [generateAnonymousHashId]
   exact String.append_ne_of_prefix_ne h
-\end{lstlisting}
+\end{verbatim}
 
 \textbf{Result}: Linking AHIs across services is computationally infeasible.
 
 \subsection{Theorem: Evasion Prevention}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 theorem audit_always_possible
     (citizen : Citizen)
     (myNumber : String)
@@ -689,13 +689,13 @@ theorem audit_always_possible
   · rfl
   · apply municipality_has_database
     exact h1
-\end{lstlisting}
+\end{verbatim}
 
 \textbf{Result}: Audit is always possible via legal procedure.
 
 \subsection{Theorem: Privacy Preservation}
 
-\begin{lstlisting}[language=Lean]
+\begin{verbatim}
 theorem zkp_preserves_privacy
     (zkp : AnonymousHashZKP)
     (adversary : Adversary) :
@@ -705,7 +705,7 @@ theorem zkp_preserves_privacy
   -- secret inputs cannot be extracted from proof
   apply ZKP.knowledge_soundness
   apply ZKP.zero_knowledge_property
-\end{lstlisting}
+\end{verbatim}
 
 \textbf{Result}: Service providers and third parties cannot learn national IDs.
 

@@ -2,7 +2,16 @@
 
 \section{Abstract}
 
-The \texttt{did:amt} method specifies a Decentralized Identifier (DID) that is algorithmically generated and resolved without reliance on any external Verifiable Data Registry (VDR) such as a blockchain. This method is based on the AMT (Autonomous Meta-Trust) Protocol, designed for high-stakes environments like public administration, where data integrity and operational robustness are paramount.
+\begin{definition}
+  \label{def:did-amt}
+  The \texttt{did:amt} method is a Decentralized Identifier (DID) that is algorithmically generated
+  and resolved without reliance on any external Verifiable Data Registry (VDR) such as a blockchain.
+  This method is designed for high-stakes environments (public administration, government) where
+  data integrity and operational robustness are paramount.
+  \uses{def:amatelus}
+  \lean{AMATELUS.DIDMethod}
+  \leanok
+\end{definition}
 
 \section{did:amt Syntax}
 
@@ -25,29 +34,37 @@ This character set is chosen to minimize human transcription errors in administr
 
 \subsection{Create: Local Generation}
 
-A \texttt{did:amt} identifier is generated locally on the owner's device. No network registration is required.
+\begin{theorem}
+  \label{thm:did-local-generation}
+  A \texttt{did:amt} identifier is generated locally on the owner's device without network registration.
 
-\begin{enumerate}
-  \item Generate Ed25519 key pair
-  \item Prepare information pair: AMT Version Number + Public Key
-  \item Select DID Document template corresponding to AMT version
-  \item Derive DID:
-    \begin{enumerate}
-      \item Encode Ed25519 public key in Crockford's Base32 with multibase prefix \texttt{k}
-      \item Insert into DID Document template
-      \item Normalize template using JCS (RFC 8785)
-      \item Hash with SHA3-512
-      \item Encode hash digest with Crockford's Base32
-      \item Prepend \texttt{did:amt:} to obtain final DID
-    \end{enumerate}
-  \item Finalize DID Document with derived DID
-\end{enumerate}
+  The generation process consists of:
+  \begin{enumerate}
+    \item Generate Ed25519 key pair
+    \item Prepare information pair: AMT Version Number + Public Key
+    \item Select DID Document template corresponding to AMT version
+    \item Derive DID through local cryptographic operations
+  \end{enumerate}
+  \uses{def:did-amt, def:crypto-assumptions}
+  \proves{thm:boundary-clarity}
+  \lean{AMATELUS.DIDGeneration}
+  \leanok
+\end{theorem}
 
 \subsection{Read: Local Resolution}
 
-The resolution of a \texttt{did:amt} is completed locally by a verifier who receives the \texttt{[AMT Version Number, Public Key]} pair from the owner and executes the same derivation steps.
+\begin{theorem}
+  \label{thm:did-local-resolution}
+  The resolution of a \texttt{did:amt} is completed locally by a verifier.
 
-No external service calls required.
+  No external Verifiable Data Registry (blockchain, centralized service) or network calls are required.
+  Verifier receives the \texttt{[AMT Version Number, Public Key]} pair from the owner and executes
+  the same local derivation steps for verification.
+  \uses{def:did-amt, def:crypto-assumptions}
+  \proves{thm:boundary-clarity}
+  \lean{AMATELUS.DIDResolution}
+  \leanok
+\end{theorem}
 
 \subsection{Update: Not Supported}
 

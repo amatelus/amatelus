@@ -2,40 +2,68 @@
 
 \section{AMATELUS Protocol Overview}
 
-The AMATELUS protocol is a cryptographic authentication mechanism integrating Decentralized Identifiers (DIDs), Verifiable Credentials (VCs), and Zero-Knowledge Proofs (ZKPs).
+\begin{definition}
+  \label{def:amatelus}
+  The AMATELUS protocol is a cryptographic authentication mechanism integrating:
+  \begin{itemize}
+    \item Decentralized Identifiers (DIDs)
+    \item Verifiable Credentials (VCs)
+    \item Zero-Knowledge Proofs (ZKPs)
+  \end{itemize}
+  \lean{AMATELUS.Core}
+  \leanok
+\end{definition}
 
 \subsection{What AMATELUS Provides}
 
-AMATELUS delivers the following capabilities:
-\begin{itemize}
-  \item Public key infrastructure (PKI) based distributed identifiers
-  \item Zero-knowledge proof-based attribute ownership verification
-  \item Verifiable credentials for claim issuance and storage
-  \item Cryptographic trust guarantees
-\end{itemize}
+\begin{proposition}
+  \label{prop:amatelus-capabilities}
+  AMATELUS delivers the following cryptographic capabilities:
+  \begin{itemize}
+    \item Public key infrastructure (PKI) based distributed identifiers
+    \item Zero-knowledge proof-based attribute ownership verification
+    \item Verifiable credentials for claim issuance and storage
+    \item Cryptographic trust guarantees
+  \end{itemize}
+  \uses{def:amatelus}
+  \lean{AMATELUS.Capabilities}
+  \leanok
+\end{proposition}
 
 \subsection{What AMATELUS Does NOT Provide}
 
-Critically, AMATELUS \emph{does not} provide:
-\begin{itemize}
-  \item Centralized directory services (DID resolution is local-only)
-  \item Mediation or relay infrastructure
-  \item User authorization decisions
-  \item Communication endpoint management
-  \item Message delivery guarantees
-\end{itemize}
+\begin{proposition}
+  \label{prop:amatelus-non-scope}
+  AMATELUS \emph{does not} provide:
+  \begin{itemize}
+    \item Centralized directory services (DID resolution is local-only)
+    \item Mediation or relay infrastructure
+    \item User authorization decisions
+    \item Communication endpoint management
+    \item Message delivery guarantees
+  \end{itemize}
+  \uses{def:amatelus}
+  \lean{AMATELUS.NonScope}
+\end{proposition}
 
 \subsection{Design Philosophy}
 
-AMATELUS is a \emph{cryptographic authentication mechanism}, not a communication infrastructure.
+\begin{proposition}
+  \label{prop:design-philosophy}
+  AMATELUS is a \emph{cryptographic authentication mechanism}, not a communication infrastructure.
+  \uses{def:amatelus, prop:amatelus-capabilities, prop:amatelus-non-scope}
+  \lean{AMATELUS.Philosophy}
+  \leanok
+\end{proposition}
 
-The core design principle emerges from the observation that:
-\begin{itemize}
-  \item Every real-world service (banking, government, voting, SNS) requires a centralized service provider
-  \item AMATELUS provides only cryptographic trust verification
-  \item Service providers maintain responsibility for endpoints, authorization, and communication security
-  \item Individual users bear zero burden for endpoint contract management
-\end{itemize}
-
-This boundary-clarity eliminates the complexity of distributed infrastructure while preserving cryptographic security properties.
+\begin{theorem}
+  \label{thm:boundary-clarity}
+  The boundary between cryptographic verification (AMATELUS responsibility) and
+  service provision (service provider responsibility) eliminates distributed
+  infrastructure complexity while preserving cryptographic security properties.
+  \uses{prop:design-philosophy}
+  \proves{prop:design-philosophy}
+  \lean{AMATELUS.BoundaryClarity}
+  \leanok
+\end{theorem}
 

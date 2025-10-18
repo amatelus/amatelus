@@ -2,48 +2,71 @@
 
 \section{Security Assumptions}
 
-\begin{itemize}
-  \item \textbf{Collision-resistant hash}: SHA3-512 provides 128-bit security against quantum adversaries
-  \item \textbf{Unforgeable signatures}: Dilithium2 provides 128-bit security against quantum adversaries
-  \item \textbf{ZKP soundness}: Standard zero-knowledge properties (completeness, soundness, zero-knowledge)
-  \item \textbf{Independent nonce generation}: Cryptographically random nonces with sufficient entropy
-\end{itemize}
+\begin{definition}
+  \label{def:crypto-assumptions}
+  AMATELUS relies on the following cryptographic security assumptions:
+  \begin{itemize}
+    \item \textbf{Collision-resistant hash}: SHA3-512 provides 128-bit security against quantum adversaries
+    \item \textbf{Unforgeable signatures}: Dilithium2 provides 128-bit security against quantum adversaries
+    \item \textbf{ZKP soundness}: Standard zero-knowledge properties (completeness, soundness, zero-knowledge)
+    \item \textbf{Independent nonce generation}: Cryptographically random nonces with sufficient entropy
+  \end{itemize}
+  \uses{def:amatelus}
+  \lean{AMATELUS.CryptoAssumptions}
+  \leanok
+\end{definition}
 
 \section{Threat Model and Mitigations}
 
 \subsection{Impersonation Attack (Different Secret Key)}
 
-\begin{itemize}
-  \item \textbf{Attack}: Attacker uses different secret key to forge ZKP
-  \item \textbf{Defense}: DIDComm makes sender's public key known to recipient
-  \item \textbf{Result}: Different secret key $\Rightarrow$ signature verification fails
-  \item \textbf{Protocol layer}: Cryptographically prevented
-\end{itemize}
+\begin{theorem}
+  \label{thm:impersonation-resistance}
+  Impersonation attacks with different secret keys are cryptographically prevented.
+
+  If an attacker uses a different secret key to forge a ZKP, the signature verification will fail
+  because DIDComm makes the sender's public key known to the recipient.
+  \uses{def:crypto-assumptions}
+  \proves{prop:amatelus-capabilities}
+  \lean{AMATELUS.ImpersonationResistance}
+  \leanok
+\end{theorem}
 
 \subsection{Replay Attack (Same ZKP, Same User)}
 
-\begin{itemize}
-  \item \textbf{Attack}: Legitimate user reuses identical ZKP in new session
-  \item \textbf{Defense}: Dual nonce binding ensures each ZKP corresponds to unique nonce pair
-  \item \textbf{Result}: Session-specific ZKP cannot be reused
-  \item \textbf{Service layer}: Optional nonce history management (service responsibility)
-\end{itemize}
+\begin{theorem}
+  \label{thm:replay-resistance}
+  Replay attacks are prevented by dual nonce binding.
+
+  Each ZKP corresponds to a unique nonce pair. Even if a legitimate user's ZKP is
+  reused in a new session, the nonces will differ, preventing the attack.
+  \uses{def:crypto-assumptions}
+  \proves{prop:amatelus-capabilities}
+  \lean{AMATELUS.ReplayResistance}
+  \leanok
+\end{theorem}
 
 \subsection{Man-in-the-Middle Attack}
 
-\begin{itemize}
-  \item \textbf{Attack}: Intermediary intercepts and modifies messages
-  \item \textbf{Defense}: ECDH-1PU authenticated encryption (service provider responsibility)
-  \item \textbf{Result}: Message authentication prevents undetected modification
-  \item \textbf{Transport layer}: TLS/HTTPS (service provider responsibility)
-\end{itemize}
+\begin{proposition}
+  \label{prop:mitm-defense}
+  Man-in-the-Middle attacks are mitigated at the transport layer.
+
+  While AMATELUS provides cryptographic identity verification, ECDH-1PU authenticated
+  encryption and TLS/HTTPS are the responsibility of service providers.
+  \uses{def:crypto-assumptions}
+  \lean{AMATELUS.MITMDefense}
+\end{proposition}
 
 \subsection{Sybil Attack (Multiple DIDs)}
 
-\begin{itemize}
-  \item \textbf{Attack}: Single entity controls multiple DIDs to gain asymmetric advantages
-  \item \textbf{Protocol position}: Multiple DID possession is intentional design for privacy
-  \item \textbf{Mitigation}: Anonymous Hash Identifier (AHI) restricts per-audit-domain abuse
-  \item \textbf{Social layer}: Operational policy and service-specific restrictions
-\end{itemize}
+\begin{proposition}
+  \label{prop:sybil-resilience}
+  Multiple DID possession is intentional protocol design for privacy protection.
+
+  While a single entity can control multiple DIDs, Anonymous Hash Identifiers (AHI)
+  restrict per-audit-domain abuse through cryptographic binding to national identity systems.
+  \uses{def:amatelus}
+  \lean{AMATELUS.SybilResilience}
+\end{proposition}
 

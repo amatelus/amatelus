@@ -46,7 +46,6 @@ This character set is chosen to minimize human transcription errors in administr
     \item Derive DID through local cryptographic operations
   \end{enumerate}
   \uses{def:did-amt, def:crypto-assumptions}
-  \proves{thm:boundary-clarity}
   \lean{AMATELUS.DIDGeneration}
   \leanok
 \end{theorem}
@@ -61,7 +60,6 @@ This character set is chosen to minimize human transcription errors in administr
   Verifier receives the \texttt{[AMT Version Number, Public Key]} pair from the owner and executes
   the same local derivation steps for verification.
   \uses{def:did-amt, def:crypto-assumptions}
-  \proves{thm:boundary-clarity}
   \lean{AMATELUS.DIDResolution}
   \leanok
 \end{theorem}

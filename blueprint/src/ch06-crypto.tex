@@ -27,7 +27,6 @@
   If an attacker uses a different secret key to forge a ZKP, the signature verification will fail
   because DIDComm makes the sender's public key known to the recipient.
   \uses{def:crypto-assumptions}
-  \proves{prop:amatelus-capabilities}
   \lean{AMATELUS.ImpersonationResistance}
   \leanok
 \end{theorem}
@@ -41,7 +40,6 @@
   Each ZKP corresponds to a unique nonce pair. Even if a legitimate user's ZKP is
   reused in a new session, the nonces will differ, preventing the attack.
   \uses{def:crypto-assumptions}
-  \proves{prop:amatelus-capabilities}
   \lean{AMATELUS.ReplayResistance}
   \leanok
 \end{theorem}

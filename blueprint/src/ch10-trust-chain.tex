@@ -1,0 +1,309 @@
+\chapter{Trust Chain Architecture}
+
+\section{Overview}
+
+The Trust Chain specification provides a hierarchical delegation mechanism that enables authority transfer through cryptographically verified credentials. Key capabilities include:
+
+\begin{itemize}
+  \item \textbf{Authority Delegation}: Upper organizations delegate authority to lower organizations
+  \item \textbf{Cryptographic Verification}: Delegation chains are cryptographically verifiable
+  \item \textbf{Schema-Based Delegation}: Delegation content is structurally defined using JSON Schema
+  \item \textbf{Dynamic Depth Limitation}: Delegators specify \texttt{maxDepth}; Nat monotonic decrease prevents infinite hierarchies
+  \item \textbf{Holder-Centric Design}: VCs can be issued by anyone (including Holders themselves); verifiers check only the delegation chain's \texttt{grantorDID}
+  \item \textbf{Per-Claim Signatures}: Recipients sign each claim individually, dramatically reducing VP/ZKP input sizes
+  \item \textbf{ZKP-Only Submission}: VPs are internal structures; all submissions use only ZKPs
+  \item \textbf{Field-Level Selective Disclosure}: ZKPs enable revelation of only required fields, maximizing privacy
+\end{itemize}
+
+\section{Trust Chain Components}
+
+\subsection{Architecture}
+
+A trust chain flows from a root authority through delegatees to holders:
+
+\begin{center}
+\begin{verbatim}
+Root Anchor (Trusted Authority)
+    ↓ Delegation Credential
+    │ (delegated authority → recipient)
+    ↓
+Delegatee (Authority)
+    ↓ Attribute Credential
+    │ (claim with embedded delegation)
+    ↓
+Holder (Subject)
+    ↓ Re-packaging (optional)
+    │ (Holder re-issues with own signature)
+    ↓
+Verifier (Service Provider)
+    verifies:
+    - ZKP validity
+    - grantorDID in trustedAnchors
+    does NOT verify:
+    - VC issuer
+    - granteeDID matching
+\end{verbatim}
+\end{center}
+
+\subsection{Critical Design Principles}
+
+\begin{itemize}
+  \item \textbf{VC Issuer Flexibility}: The \texttt{issuer} field can be anyone; trust derives from the delegation chain's \texttt{grantorDID}
+  \item \textbf{Delegation Chain Focus}: Verifiers inspect \texttt{grantorDID} (trust root), not \texttt{issuer}
+  \item \textbf{ZKP Compatibility}: VCs issued by Holders can still prove delegated authority via ZKP
+  \item \textbf{Holder Re-packaging}: Holders can re-issue received VCs with their own signature; each claim's proof remains unchanged
+\end{itemize}
+
+\section{Delegation Credentials}
+
+\subsection{Structure}
+
+A Delegation Credential contains multiple delegations, each authorizing a specific claim type:
+
+\begin{itemize}
+  \item \textbf{issuer}: Delegator's DID (must be in \texttt{trustedAnchors})
+  \item \textbf{credentialSubject.id}: Original recipient's DID (historical information)
+  \item \textbf{credentialSubject.delegations}: Array of delegation objects
+  \item \textbf{proof}: Delegator's signature over the entire credential
+\end{itemize}
+
+Each delegation element contains:
+
+\begin{itemize}
+  \item \textbf{grantorDID}: Authority granting the right (verification anchor)
+  \item \textbf{granteeDID}: Initial recipient DID (historical information)
+  \item \textbf{label}: Human-readable claim label (e.g., ``Resident Certificate'')
+  \item \textbf{claimSchema}: JSON Schema (AMATELUS Subset) defining allowed claim structure
+  \item \textbf{maxDepth}: Maximum further delegation depth (Nat $\geq 1$)
+  \item \textbf{proof}: Delegator's signature over the delegation object
+\end{itemize}
+
+\subsection{Dynamic Depth Limitation}
+
+The protocol prevents infinite delegation chains through monotonic depth decrease:
+
+\begin{enumerate}
+  \item Each delegator specifies \texttt{maxDepth} (maximum delegations from this point forward)
+  \item Each recipient computes: \texttt{nextDepth = min(parentDepth - 1, delegation.maxDepth)}
+  \item When depth reaches zero, further delegation is impossible
+  \item Lean 4 formally proves termination via \texttt{termination\_by} clause
+\end{enumerate}
+
+Example: Government $\xrightarrow{\text{maxDepth}=5}$ Prefecture $\xrightarrow{\text{maxDepth}=2}$ Municipality $\xrightarrow{\text{maxDepth}=1}$ Department $\xrightarrow{\text{maxDepth}=0}$ (chain stops)
+
+\section{Attribute Credentials with Embedded Delegation}
+
+\subsection{Direct Issuance (0-Layer)}
+
+Standard W3C VC issued directly by a trusted authority:
+
+\begin{itemize}
+  \item No delegation chain
+  \item Simple structure: \texttt{issuer}, \texttt{credentialSubject.claims}, \texttt{proof}
+  \item Verification: \texttt{issuer} must be in \texttt{trustedAnchors}
+\end{itemize}
+
+\subsection{Delegated Issuance (1-Layer and Beyond)}
+
+When issued under delegated authority, each claim embeds delegation information:
+
+\begin{itemize}
+  \item \textbf{content}: Actual claim data
+  \item \textbf{delegation}: Reference to the delegation authorization
+  \item \textbf{delegationProof}: Grantor's signature over the delegation
+  \item \textbf{proof}: Grantee's signature over the content (prevents Holder modification)
+\end{itemize}
+
+Verification checks:
+\begin{enumerate}
+  \item \texttt{delegation.grantorDID} is in \texttt{trustedAnchors}
+  \item \texttt{content} conforms to \texttt{delegation.claimSchema}
+  \item \texttt{delegationProof} is valid under \texttt{grantorDID}
+  \item \texttt{proof} is valid under \texttt{granteeDID} (enables ZKP verification)
+\end{enumerate}
+
+Does \textbf{NOT} verify:
+\begin{itemize}
+  \item VC's \texttt{issuer} field (can be anyone, including the Holder)
+  \item \texttt{granteeDID} matches VC's \texttt{issuer}
+\end{itemize}
+
+\subsection{Holder Re-Packaging}
+
+Holders can re-issue received VCs under their own DID:
+
+\begin{itemize}
+  \item VC's \texttt{issuer} becomes Holder's DID
+  \item VC's \texttt{proof} becomes Holder's signature
+  \item Each claim's \texttt{content}, \texttt{delegation}, \texttt{delegationProof}, \texttt{proof} remain unchanged
+  \item Verification remains unchanged (still trusts \texttt{grantorDID})
+\end{itemize}
+
+This enables Holders to maintain privacy from service providers while proving delegated authority through ZKP.
+
+\section{Verifiable Presentations and ZKP Generation}
+
+\subsection{VP as Internal Structure}
+
+Unlike W3C specifications, AMATELUS uses VPs internally only:
+
+\begin{itemize}
+  \item VPs are \textbf{never submitted directly} to issuers or verifiers
+  \item VPs serve to organize claims before ZKP generation
+  \item Holders extract only required claims from multiple VCs and assemble them into a VP
+  \item ZKP is generated from the VP's selected claims, not the original VCs
+\end{itemize}
+
+\subsection{ZKP Input Size Reduction}
+
+This design dramatically reduces computational cost:
+
+\begin{itemize}
+  \item \textbf{Traditional method}: ZKP includes all claims from all VCs
+  \item \textbf{VP+Individual Signatures method}: ZKP includes only selected claims
+  \item \textbf{Efficiency gain}: If Holder needs 3 claims from 23 total, ZKP input shrinks to $\approx 1/8$
+  \item \textbf{Mobile impact}: Battery consumption, memory use, and response time all improve proportionally
+\end{itemize}
+
+Each claim's individual \texttt{proof} (recipient's signature) enables this efficiency:
+
+\begin{itemize}
+  \item Allows claims to be verified independently
+  \item Prevents Holder from modifying claim content (signature would fail)
+  \item Enables selective disclosure without revealing unneeded claims
+\end{itemize}
+
+\subsection{Submission to Issuers}
+
+When requesting a new VC from an issuer:
+
+\begin{enumerate}
+  \item Holder creates a VP (internal only) from relevant credentials
+  \item Holder generates a ZKP with public inputs including:
+    \begin{itemize}
+      \item Holder's DID (issuer needs to record who is requesting)
+      \item Required fields (e.g., name, age category, income threshold proof)
+      \item \texttt{grantorDIDs} (proof authorities)
+    \end{itemize}
+  \item Holder submits: \texttt{\{zkp, publicInputs\}} only
+  \item Issuer verifies ZKP and creates new VC with \texttt{credentialSubject.id} from public input
+\end{enumerate}
+
+\subsection{Submission to Verifiers}
+
+When proving attributes to a service provider:
+
+\begin{enumerate}
+  \item Holder creates a VP (internal only) from relevant credentials
+  \item Holder generates a ZKP with public inputs including:
+    \begin{itemize}
+      \item Required properties only (e.g., ``age $\geq 20'', ``residence in Japan'')
+      \item Holder's DID is \textbf{hidden} in ZKP's secret inputs
+      \item \texttt{grantorDIDs} (proof authorities)
+    \end{itemize}
+  \item Holder submits: \texttt{\{zkp, publicInputs\}} only
+  \item Verifier verifies ZKP without learning:
+    \begin{itemize}
+      \item Holder's identity (DID)
+      \item Specific personal information (exact birthdate, address, etc.)
+      \item Which claims or VCs were used
+      \item Original credential content
+    \end{itemize}
+\end{enumerate}
+
+This achieves complete privacy for cross-service authentication: the verifier learns only what is cryptographically necessary.
+
+\section{Security Properties}
+
+\subsection{Depth Limitation Proofs}
+
+Lean 4 formally proves three key properties:
+
+\begin{enumerate}
+  \item \textbf{Termination}: \texttt{verifyChain} always completes in finite time (via \texttt{termination\_by remainingDepth})
+  \item \textbf{Finite Chain Length}: No valid chain can exceed \texttt{initialMaxDepth}
+  \item \textbf{N-Layer Finiteness}: Multi-layer delegations remain bounded
+\end{enumerate}
+
+\subsection{Circular Delegation Prevention}
+
+DIDs in a chain must be unique (O(n) check):
+
+\begin{itemize}
+  \item Detects cycles by comparing \texttt{getAllDIDs(chain)} with \texttt{getAllDIDs(chain).eraseDups}
+  \item \texttt{verifyChain} returns false if duplicates found
+\end{itemize}
+
+\subsection{Holder-Centric Verification}
+
+By focusing verification on \texttt{grantorDID} rather than \texttt{issuer}:
+
+\begin{itemize}
+  \item \textbf{Issuer Independence}: Credentials can be re-issued by different parties without verification failure
+  \item \textbf{Holder Privacy}: Holders can re-package credentials under their own DID without disclosure
+  \item \textbf{ZKP Compatibility}: Delegation authority persists even when issuer is hidden via ZKP
+\end{itemize}
+
+\subsection{Per-Claim Signature Guarantees}
+
+Each claim's \texttt{proof} (recipient's signature):
+
+\begin{itemize}
+  \item Prevents Holders from modifying claim content
+  \item Enables independent claim verification (critical for VP-based ZKP generation)
+  \item Survives Holder re-packaging (signature remains unchanged)
+\end{itemize}
+
+\section{Examples}
+
+\subsection{Single-Layer Delegation}
+
+Government delegates ``Resident Certificate'' authority to municipalities:
+
+\begin{center}
+\begin{verbatim}
+Government (grantorDID)
+  ↓ Delegation Credential
+    (grants Resident Certificate authority)
+    maxDepth = 1
+  ↓
+Municipality (granteeDID)
+  ↓ Attribute Credential
+    (issues resident data with embedded delegation)
+  ↓
+Resident (Holder)
+  ↓ Requests Bank Account
+    (verifier: Bank)
+  ↓
+Bank
+  - Verifies ZKP
+  - Confirms government DID in trustedAnchors
+  - Approves account
+\end{verbatim}
+\end{center}
+
+\subsection{Multi-Layer Delegation with Holder Privacy}
+
+\begin{center}
+\begin{verbatim}
+Government (grantorDID, maxDepth=3)
+  ↓ Prefecture (maxDepth=2)
+  ↓ Municipality (maxDepth=1)
+  ↓ Resident (Holder, issues self-signed VC)
+  ↓ Applies for Job
+    (submits ZKP: age≥18, no criminal record)
+  ↓
+Employer (Verifier)
+  - Verifies ZKP
+  - Does NOT learn:
+    - Resident's identity
+    - Exact age/birthdate
+    - Criminal history status
+    - Original credentials
+  - Learns only:
+    - Age threshold met
+    - Background check passed
+    - Government issued proof
+\end{verbatim}
+\end{center}
+

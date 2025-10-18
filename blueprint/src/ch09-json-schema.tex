@@ -1,0 +1,320 @@
+\chapter{Formally Verifiable JSON Schema Subset}
+
+\section{Abstract}
+
+The AMATELUS protocol employs a formally verifiable subset of JSON Schema 2020-12 for Verifiable Credentials validation. This subset is specifically designed to enable formal verification in Lean 4 without axioms or partial definitions.
+
+\section{Design Principles}
+
+The JSON Schema subset is built on these principles:
+
+\begin{itemize}
+  \item \textbf{Formal Verification}: All features MUST be provably terminating in Lean 4
+  \item \textbf{Protocol Guarantee}: Only features in this subset are guaranteed by AMATELUS protocol
+  \item \textbf{Implementation Freedom}: Wallets MAY support full JSON Schema 2020-12 beyond protocol guarantees
+  \item \textbf{Deterministic Validation}: Same schema produces identical results across all implementations
+  \item \textbf{Future Evolution}: As Lean capability increases, subset expands toward full JSON Schema 2020-12
+\end{itemize}
+
+\section{Formalization Strategy}
+
+\subsection{Why a Subset?}
+
+Full JSON Schema 2020-12 includes features that prevent formal verification:
+
+\begin{itemize}
+  \item \textbf{Circular references} (via \texttt{\$ref}, \texttt{\$defs}): Cause non-termination
+  \item \textbf{Dynamic property validation} (\texttt{additionalProperties}, \texttt{patternProperties}): Require unbounded iteration
+  \item \textbf{Infinite nesting}: Composition keywords can nest arbitrarily
+  \item \textbf{Format annotations}: Depend on external specifications
+\end{itemize}
+
+The subset eliminates these features to enable formal verification.
+
+\subsection{Lean Formalization Structure}
+
+\begin{verbatim}
+inductive SchemaKeyword
+  | type : List String → SchemaKeyword
+  | maxLength : Nat → SchemaKeyword
+  | minLength : Nat → SchemaKeyword
+  | pattern : String → SchemaKeyword
+  | maximum : Float → SchemaKeyword
+  | minimum : Float → SchemaKeyword
+  | multipleOf : Float → SchemaKeyword
+  | maxItems : Nat → SchemaKeyword
+  | minItems : Nat → SchemaKeyword
+  | uniqueItems : Bool → SchemaKeyword
+  | items : Schema → SchemaKeyword
+  | maxProperties : Nat → SchemaKeyword
+  | minProperties : Nat → SchemaKeyword
+  | required : List String → SchemaKeyword
+  | properties : List (String × Schema) → SchemaKeyword
+  | enum : List JSONValue → SchemaKeyword
+  | const : JSONValue → SchemaKeyword
+  | allOf : List Schema → SchemaKeyword
+  | anyOf : List Schema → SchemaKeyword
+  | oneOf : List Schema → SchemaKeyword
+  | not : Schema → SchemaKeyword
+  | title : String → SchemaKeyword
+  | description : String → SchemaKeyword
+\end{verbatim}
+
+Note: Excluded keywords like \texttt{\$ref}, \texttt{additionalProperties}, \texttt{format} are not in the inductive type.
+
+\subsection{Termination Guarantee}
+
+All supported features are \emph{provably terminating}:
+
+\begin{enumerate}
+  \item \textbf{No circular references}: \texttt{\$ref} excluded entirely
+  \item \textbf{Bounded recursion}: Composition nesting limited to 3 levels
+  \item \textbf{Finite structure}: All schemas have finite size
+\end{enumerate}
+
+\section{Supported Features}
+
+The following JSON Schema keywords are \textbf{GUARANTEED} by AMATELUS protocol:
+
+\subsection{Type System}
+
+\begin{itemize}
+  \item \textbf{\texttt{type}}: String or array of strings (null, boolean, object, array, number, string, integer)
+\end{itemize}
+
+\subsection{String Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{maxLength}}: Non-negative integer
+  \item \textbf{\texttt{minLength}}: Non-negative integer
+  \item \textbf{\texttt{pattern}}: ECMA-262 regular expression (abstracted in Lean)
+\end{itemize}
+
+\subsection{Numeric Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{maximum}}: Inclusive upper bound
+  \item \textbf{\texttt{minimum}}: Inclusive lower bound
+  \item \textbf{\texttt{multipleOf}}: Value must be multiple of given number
+\end{itemize}
+
+\subsection{Array Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{maxItems}}: Non-negative integer
+  \item \textbf{\texttt{minItems}}: Non-negative integer
+  \item \textbf{\texttt{uniqueItems}}: Boolean (default: false)
+  \item \textbf{\texttt{items}}: Schema applied to all array items
+\end{itemize}
+
+\subsection{Object Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{maxProperties}}: Non-negative integer
+  \item \textbf{\texttt{minProperties}}: Non-negative integer
+  \item \textbf{\texttt{required}}: Array of unique property names that must exist
+  \item \textbf{\texttt{properties}}: Object mapping property names to schemas
+\end{itemize}
+
+\subsection{Generic Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{enum}}: Non-empty array of allowed values
+  \item \textbf{\texttt{const}}: Single fixed JSON value
+\end{itemize}
+
+\subsection{Schema Composition (Depth-Limited)}
+
+\begin{itemize}
+  \item \textbf{\texttt{allOf}}: Instance must validate against ALL subschemas (max 3 levels)
+  \item \textbf{\texttt{anyOf}}: Instance must validate against AT LEAST ONE subschema (max 3 levels)
+  \item \textbf{\texttt{oneOf}}: Instance must validate against EXACTLY ONE subschema (max 3 levels)
+  \item \textbf{\texttt{not}}: Instance must NOT validate against subschema (max 3 levels)
+\end{itemize}
+
+\subsection{Annotation Keywords}
+
+\begin{itemize}
+  \item \textbf{\texttt{title}}: Human-readable title (informational only)
+  \item \textbf{\texttt{description}}: Detailed description (informational only)
+\end{itemize}
+
+\section{Excluded Features}
+
+The following JSON Schema features are \textbf{NOT GUARANTEED} at protocol level:
+
+\subsection{Reference Keywords}
+
+\begin{itemize}
+  \item \textbf{\texttt{\$ref}}: Schema references (prevents termination proof)
+  \item \textbf{\texttt{\$defs}}: Schema definitions (only useful with \texttt{\$ref})
+  \item \textbf{\texttt{\$dynamicRef}}, \textbf{\texttt{\$dynamicAnchor}}: Dynamic references
+\end{itemize}
+
+\subsection{Dynamic Property Validation}
+
+\begin{itemize}
+  \item \textbf{\texttt{additionalProperties}}: Ignored at protocol level (wallets MAY validate)
+  \item \textbf{\texttt{patternProperties}}: Not supported
+  \item \textbf{\texttt{propertyNames}}: Not supported
+  \item \textbf{\texttt{unevaluatedProperties}}, \textbf{\texttt{unevaluatedItems}}: Not supported
+\end{itemize}
+
+\subsection{Other Excluded Keywords}
+
+\begin{itemize}
+  \item \textbf{\texttt{if}}, \textbf{\texttt{then}}, \textbf{\texttt{else}}: Conditional schemas (use \texttt{oneOf} instead)
+  \item \textbf{\texttt{prefixItems}}, \textbf{\texttt{contains}}: Advanced array features
+  \item \textbf{\texttt{dependentRequired}}, \textbf{\texttt{dependentSchemas}}: Dependency keywords
+  \item \textbf{\texttt{exclusiveMaximum}}, \textbf{\texttt{exclusiveMinimum}}: Exclusive bounds
+  \item \textbf{\texttt{format}}: Format annotations (use \texttt{pattern} instead)
+\end{itemize}
+
+\section{Conformance Requirements}
+
+\subsection{Conformant Schema}
+
+A schema is AMATELUS-conformant if:
+
+\begin{enumerate}
+  \item Contains ONLY keywords from supported features
+  \item Composition nesting does NOT exceed 3 levels
+  \item \texttt{required} array contains unique strings
+  \item \texttt{enum} array is non-empty
+  \item Numeric constraints are valid numbers
+  \item Size constraints are non-negative integers
+  \item \texttt{multipleOf} is greater than 0
+\end{enumerate}
+
+\subsection{Conformant Validator}
+
+An AMATELUS-conformant validator MUST:
+
+\begin{enumerate}
+  \item Validate all supported keywords correctly
+  \item \textbf{Ignore} excluded keywords without error (e.g., \texttt{additionalProperties})
+  \item Enforce nesting depth limit (3 levels)
+  \item Produce deterministic results
+  \item Reject schemas exceeding nesting limits
+\end{enumerate}
+
+\section{Future Evolution: Convergence Toward Full JSON Schema}
+
+\subsection{Current Status}
+
+This subset represents a \emph{formally verifiable foundation}. As Lean's formalization capabilities advance, the subset will gradually expand toward full JSON Schema 2020-12 compliance.
+
+\subsection{Formalization-Driven Expansion}
+
+The expansion strategy follows a principle: \textbf{expand the subset only as new features become provably terminating in Lean}.
+
+\begin{itemize}
+  \item \textbf{Lean 4 v1.0 onwards}: Recursive reference support (with termination metrics) may enable \texttt{\$ref} formalization
+  \item \textbf{Future versions}: Advanced pattern matching and dependent types may enable:
+    \begin{itemize}
+      \item Dynamic property validation with bounded iteration proofs
+      \item Conditional schema validation
+      \item More complex nesting patterns
+    \end{itemize}
+  \item \textbf{Goal}: Eventually, full JSON Schema 2020-12 becomes formally verifiable
+\end{itemize}
+
+\subsection{Backward Compatibility}
+
+\begin{itemize}
+  \item Current AMATELUS-conformant schemas remain valid
+  \item New features are only added when formally verified
+  \item Protocol versioning ensures interoperability during transitions
+  \item Wallets always free to support full JSON Schema 2020-12 beyond protocol guarantees
+\end{itemize}
+
+\subsection{Versioning Strategy}
+
+\begin{verbatim}
+AMATELUS JSON Schema Subset v1.0 (current)
+- Formally verified features: 20+ keywords
+- Excluded features: circular refs, dynamic validation, format
+
+AMATELUS JSON Schema Subset v1.1 (hypothetical)
+- New formalization: conditional validation via oneOf expansion
+- Result: if/then/else pattern becomes recommended practice
+
+AMATELUS JSON Schema Subset v2.0 (future)
+- Lean capability: recursive references with termination proof
+- Result: $ref support added with formal verification guarantees
+\end{verbatim}
+
+\section{Example: AMATELUS-Conformant VC Schema}
+
+\begin{verbatim}
+{
+  "title": "Identity Credential",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["IdentityCredential"]
+    },
+    "credentialSubject": {
+      "type": "object",
+      "properties": {
+        "givenName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "familyName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "birthDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      },
+      "required": ["givenName", "familyName"],
+      "minProperties": 2,
+      "maxProperties": 5
+    }
+  },
+  "required": ["type", "credentialSubject"]
+}
+\end{verbatim}
+
+\subsection{Why This Schema is Conformant}
+
+\begin{itemize}
+  \item Uses only supported keywords (\texttt{type}, \texttt{properties}, \texttt{required}, \texttt{enum}, \texttt{pattern})
+  \item Nesting depth is 2 levels (within limit of 3)
+  \item All constraints are valid (minLength, maxLength, minProperties, maxProperties)
+  \item No circular references or dynamic validation
+  \item Formally verifiable in Lean 4
+\end{itemize}
+
+\section{Security and Robustness}
+
+\subsection{Validation Guarantees}
+
+\begin{itemize}
+  \item \textbf{Termination}: All schemas guaranteed to validate in finite time
+  \item \textbf{Determinism}: Same input always produces identical output
+  \item \textbf{No side effects}: Validation is pure computation
+\end{itemize}
+
+\subsection{Regular Expression Safety}
+
+\begin{itemize}
+  \item \textbf{ReDoS prevention}: Implementation SHOULD enforce regex timeout limits
+  \item \textbf{Abstraction in Lean}: Regex matching abstracted as \texttt{MatchedString}/\texttt{UnmatchedString}
+  \item \textbf{Implementation responsibility}: Wallet implementations must validate regex syntax
+\end{itemize}
+
+\subsection{Schema Complexity Limits}
+
+\begin{itemize}
+  \item \textbf{Max nesting}: 3 levels prevents deeply nested schemas
+  \item \textbf{Max properties}: No explicit limit, but implementations MAY enforce reasonable bounds
+  \item \textbf{No recursion}: Eliminates infinite loops and stack overflow risks
+\end{itemize}
+

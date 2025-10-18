@@ -1,0 +1,33 @@
+\chapter{Privacy Architecture}
+
+\section{Anti-Linkability Across Services}
+
+Multiple DIDs enable cross-service unlinkability:
+
+\begin{verbatim}
+∀ DID₁, DID₂, Service₁, Service₂:
+  (Service₁ ≠ Service₂) ∧
+  Link(DID₁, DID₂) requires 2^128 quantum operations
+\end{verbatim}
+
+\section{Zero-Knowledge Property}
+
+ZKP reveal attribute ownership without revealing identity:
+
+\begin{itemize}
+  \item \textbf{Public}: Attribute claimed (age ≥ 18)
+  \item \textbf{Hidden}: Identity proving the attribute
+  \item \textbf{Hidden}: Secret key generating the proof
+  \item \textbf{Verified}: ZKP authenticity via public key
+\end{itemize}
+
+\section{Deniable Authentication}
+
+For privacy-sensitive scenarios, anonymous encryption (Anoncrypt) available:
+
+\begin{itemize}
+  \item Sender identity hidden from intermediaries
+  \item Recipient verifies proof authenticity (still authenticated)
+  \item Sender maintains plausible deniability
+\end{itemize}
+

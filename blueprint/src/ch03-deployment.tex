@@ -1,0 +1,44 @@
+\chapter{Deployment Models}
+
+\section{Service-Driven Model (Primary)}
+
+In the predominant deployment model:
+\begin{enumerate}
+  \item Service provider application (bank, government, SNS) initiates
+  \item Wallet is invoked from service app via OS-level Intent/deeplink
+  \item Wallet generates DIDComm message containing:
+    \begin{itemize}
+      \item Communication DID (ephemeral or persistent based on service)
+      \item DID Document (public key only)
+      \item VC/ZKP proving required attributes
+    \end{itemize}
+  \item DIDComm message sent to service provider (HTTPS, typically)
+  \item Service provider performs:
+    \begin{itemize}
+      \item Cryptographic verification of ZKP/VC
+      \item Authorization decision
+      \item Service execution
+    \end{itemize}
+\end{enumerate}
+
+Trust origin: Service provider (centralized, established).
+
+Endpoint lifecycle: Service-scoped (session-based).
+
+\section{Physical Proximity Model (Supplementary)}
+
+For in-person scenarios:
+\begin{enumerate}
+  \item Bluetooth Low Energy (BLE) provides discovery via physical proximity
+  \item Public services (municipal offices, event gates)
+  \item Session completes within local network
+  \item No persistent endpoint contracts
+\end{enumerate}
+
+Examples:
+\begin{itemize}
+  \item Age verification at municipal counter
+  \item Facility access control
+  \item In-person credential verification
+\end{itemize}
+

@@ -1,0 +1,149 @@
+\chapter{Technical Specifications}
+
+\section{DID Document Design Principles}
+
+The AMT protocol employs did:amt for distributed identifier generation and resolution. The DID Document structure is minimal and stateless:
+
+\begin{verbatim}
+DID := did:amt:H(DIDDoc)
+
+DIDDoc := {
+  id: DID,
+  publicKey: PublicKey,
+  metadata: Metadata
+}
+\end{verbatim}
+
+where $H$ is SHA3-512 (collision-resistant hash function).
+
+\subsection{Critical Design Decision: Abolition of serviceEndpoint}
+
+Traditional DID specifications include \texttt{serviceEndpoint} in DIDDocuments. The AMT protocol rejects this for principled reasons:
+
+\subsubsection{Problem with serviceEndpoint}
+
+\begin{itemize}
+  \item \textbf{Short lifetime}: Service endpoint contracts last months to few years
+  \item \textbf{Individual burden}: Users must manage contract renewals and provider changes
+  \item \textbf{Unrealistic assumption}: Assumes individual can maintain stable, contracted endpoints
+  \item \textbf{Real-world failure}: When provider fails or service terminates, users cannot migrate
+\end{itemize}
+
+\subsubsection{AMT Solution}
+
+Remove \texttt{serviceEndpoint} from DIDDocument entirely.
+
+Instead:
+\begin{itemize}
+  \item DID lifetime: Long-term (public-key-based, years to decades)
+  \item Endpoint lifetime: Session-scoped (minutes to hours)
+  \item Endpoint management: Service provider responsibility only
+  \item Individual burden: Zero
+\end{itemize}
+
+\subsubsection{Implementation Reality}
+
+\begin{itemize}
+  \item Wallet is invoked by service app (already knows its own endpoint)
+  \item DIDDocument contains only public key for cryptographic verification
+  \item Endpoint information implicit in application context
+  \item No distributed endpoint discovery needed
+\end{itemize}
+
+For complete did:amt specification details, see Chapter 2 (did:amt Method Specification).
+
+\section{DIDComm Integration}
+
+AMATELUS employs DIDComm Messaging v2.1 as the sole communication protocol.
+
+\subsection{Message Structure}
+
+\begin{verbatim}
+DIDCommMessageSend := {
+  senderDID: ValidDID,
+  senderDoc: Option<ValidDIDDocument>,
+  vcs: List<ValidVC>,
+  zkp: Option<ValidZKP>
+}
+\end{verbatim}
+
+\subsection{Security Properties}
+
+\begin{itemize}
+  \item \textbf{ECDH-1PU authenticated encryption}: Sender identity authenticated exclusively to recipient
+  \item \textbf{Message-level security}: Independent of transport layer
+  \item \textbf{Transport agnosticism}: Works over HTTPS, BLE, WebSocket, etc.
+  \item \textbf{Sender anonymity (optional)}: Anoncrypt layer available if needed
+\end{itemize}
+
+\section{Verifiable Credentials}
+
+\subsection{VC Structure}
+
+\begin{verbatim}
+VC := {
+  issuer: DID_issuer,
+  subject: DID_subject,
+  claims: Claims,
+  signature: Signature,
+  credentialStatus: RevocationInfo,
+  deLinkageInfo: Option<DeLinkageInfo>
+}
+\end{verbatim}
+
+\subsection{Delinkage Information}
+
+To prevent cross-service correlation:
+
+\begin{verbatim}
+DeLinkageInfo := {
+  identityDID: DID,        // Long-term identity DID
+  communicationDID: DID    // Session-specific DID
+}
+\end{verbatim}
+
+ZKP proves ownership of both DIDs without revealing either to external parties.
+
+\section{Zero-Knowledge Proofs}
+
+\subsection{Dual Nonce Binding}
+
+\begin{verbatim}
+ZKP := (π, x, nonce_holder, nonce_verifier)
+where π proves knowledge of w such that
+R(x, w, nonce_holder, nonce_verifier) = 1
+\end{verbatim}
+
+\subsection{Nonce Generation and Binding}
+
+Both Holder and Verifier generate independent nonces (≥128 bits):
+
+\begin{enumerate}
+  \item Verifier generates \texttt{nonce2} (challenge)
+  \item Verifier sends \texttt{nonce2} to Holder
+  \item Holder generates \texttt{nonce1} independently
+  \item Holder combines: \texttt{nonce\_combined = H(nonce1 || nonce2)}
+  \item ZKP bound to \texttt{nonce\_combined}
+  \item Holder returns (ZKP, nonce1) to Verifier
+  \item Verifier verifies both nonces cryptographically
+\end{enumerate}
+
+\subsection{Security Property: Mutual Defense}
+
+If either party generates unique nonces:
+\begin{itemize}
+  \item Holder bug (fixed nonce1) $\Rightarrow$ Verifier's nonce2 provides protection
+  \item Verifier bug (fixed nonce2) $\Rightarrow$ Holder's nonce1 provides protection
+  \item Both unique $\Rightarrow$ Complete protection from replay
+\end{itemize}
+
+Neither party depends solely on the other's implementation quality.
+
+\subsection{Computational Efficiency}
+
+\begin{itemize}
+  \item \textbf{Offline precomputation}: Heavy circuit evaluation (minutes to hours)
+  \item \textbf{Real-time nonce binding}: Light operations only (milliseconds to hundreds of milliseconds)
+  \item \textbf{UX compatibility}: User interaction completes within tolerance (3 seconds)
+\end{itemize}
+

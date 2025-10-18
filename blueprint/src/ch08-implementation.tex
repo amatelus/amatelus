@@ -1,0 +1,110 @@
+\chapter{Implementation Guidance}
+
+\section{Wallet Implementation Requirements}
+
+\subsection{Secret Key Management}
+
+\begin{itemize}
+  \item Store private keys in secure enclave (iOS/Android hardware)
+  \item Never export unencrypted private keys
+  \item Implement key derivation from user-memorizable seeds (BIP39 compatible)
+\end{itemize}
+
+\subsection{DID Lifecycle}
+
+\subsubsection{Identity DIDs}
+
+\begin{itemize}
+  \item Generated once per credential lifetime (typically 1-10 years)
+  \item Persisted across wallet updates and device changes
+  \item Associated with formal credentials (passport, license, etc.)
+\end{itemize}
+
+\subsubsection{Communication DIDs}
+
+\begin{itemize}
+  \item Generated per service engagement or per session (configurable)
+  \item Destroyed if VC not issued (one-time verification)
+  \item Persisted if VC issued (login reuse case)
+  \item Linked to counterparty DID in wallet for session continuation
+\end{itemize}
+
+\subsection{VC Storage}
+
+\begin{itemize}
+  \item Store issued VCs with \texttt{deLinkageInfo}
+  \item Enable offline VC verification
+  \item Implement selective disclosure (claim subset presentation)
+  \item Track VC issuance context (service, timestamp, nonce)
+\end{itemize}
+
+\section{Service Provider Integration}
+
+\subsection{DIDComm Endpoint Setup}
+
+\begin{enumerate}
+  \item Publish service endpoint URL (HTTPS with valid TLS)
+  \item Accept POST requests with DIDComm messages
+  \item Parse and cryptographically verify ZKP
+  \item Execute service logic based on verified claims
+  \item Return VC (if registration service) or result (if verification-only)
+\end{enumerate}
+
+\subsection{Authorization Decision Points}
+
+Services must decide:
+
+\begin{itemize}
+  \item Which claims are required for service access
+  \item Which DIDs are trusted for VC validation
+  \item How to handle multiple DIDs from same user (user linking policy)
+  \item Whether to issue persistent VC or one-time verification
+\end{itemize}
+
+\subsection{Nonce Management (Optional Service Feature)}
+
+If replay prevention beyond DIDComm is required:
+
+\begin{enumerate}
+  \item Generate unique nonce per session
+  \item Send nonce to wallet
+  \item Verify returned ZKP includes nonce in cryptographic binding
+  \item Record used nonces to prevent reuse
+  \item Clean up nonce history based on session TTL
+\end{enumerate}
+
+Note: Nonce management is \emph{optional} at service layer, not protocol-required.
+
+\section{Deployment Scenarios}
+
+\subsection{One-Time Verification (Age Confirmation)}
+
+\begin{itemize}
+  \item Holder generates ephemeral communication DID
+  \item Generates ZKP proving age ≥ 18
+  \item Verifier validates ZKP, permits or denies access
+  \item Communication DID destroyed (no VC issued)
+  \item No persistent state
+\end{itemize}
+
+\subsection{Service Registration (Account Opening)}
+
+\begin{itemize}
+  \item Holder generates communication DID (persistent)
+  \item Generates ZKP proving identity claims
+  \item Issuer validates, creates account
+  \item Issuer generates VC (e.g., account holder credential)
+  \item Holder stores VC and communication DID-to-service association
+  \item Later: Login reuses same communication DID
+\end{itemize}
+
+\subsection{Continuous Authentication (SNS, Messaging)}
+
+\begin{itemize}
+  \item Holder generates ephemeral communication DID per login
+  \item Generates ZKP proving phone number ownership
+  \item Service validates, establishes session
+  \item Session token replaces ZKP for subsequent requests
+  \item Communication DID may be stored for optional reconnection hint
+\end{itemize}
+

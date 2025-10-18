@@ -1,0 +1,48 @@
+\chapter{Trust Architecture}
+
+\section{Responsibility Boundaries}
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Component} & \textbf{AMATELUS} & \textbf{Service Provider} \\
+\hline
+Public Key Infrastructure & \checkmark & -- \\
+DID generation & \checkmark & -- \\
+VC issuance/validation (1-layer) & \checkmark & Policy \\
+ZKP generation/verification & \checkmark & -- \\
+Endpoint management & -- & \checkmark \\
+Message delivery & -- & \checkmark \\
+Authorization decisions & -- & \checkmark \\
+Communication security (TLS) & -- & \checkmark \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Trust Origin}
+
+\begin{itemize}
+  \item \textbf{Cryptographic trust}: Originating from AMATELUS protocol
+  \item \textbf{Operational trust}: Originating from service provider (centralized)
+  \item \textbf{Authorization trust}: Originating from service provider (centralized)
+\end{itemize}
+
+The separation prevents AMATELUS from assuming responsibilities it cannot scale to manage globally.
+
+\section{One-Layer Trust Limitation}
+
+AMATELUS validates only 1-layer VC chains:
+
+\begin{itemize}
+  \item \textbf{0-layer}: Direct issuance from trusted anchor
+  \item \textbf{1-layer}: Delegated issuance (trustee validated against anchor)
+  \item \textbf{2+ layers}: Explicitly \emph{not} validated by AMATELUS protocol
+\end{itemize}
+
+This prevents:
+\begin{itemize}
+  \item Delegation chain attacks
+  \item Circular credential verification
+  \item Unbounded revocation propagation
+\end{itemize}
+

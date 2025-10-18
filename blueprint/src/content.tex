@@ -1,6 +1,38 @@
 % AMATELUS Protocol Blueprint
 % English specification based on formal verification and architectural analysis
 
+\chapter{Nomenclature and Scope}
+
+\section{Terminology}
+
+This document uses two complementary names for the same underlying technology:
+
+\subsection{AMT Protocol (Technical Name)}
+
+\textbf{AMT} (Autonomous Meta-Trust) is the \emph{technical name} for the protocol, designed for international standardization. This is the name used in technical discussions, standards bodies, and peer-reviewed literature.
+
+\subsection{AMATELUS (Marketing Name)}
+
+\textbf{AMATELUS} is the \emph{marketing name}, indicating "Japanese origin." This is used for brand identity, commercial deployment, and public communication in Japan.
+
+\subsection{Relationship}
+
+\begin{itemize}
+  \item \textbf{AMT Protocol} = international-standard-oriented technical specification
+  \item \textbf{AMATELUS} = Japan-specific implementation and deployment brand
+  \item Both refer to the same underlying cryptographic authentication mechanism
+\end{itemize}
+
+\section{Document Scope}
+
+This blueprint covers:
+\begin{itemize}
+  \item The AMT Protocol (technical foundation)
+  \item The did:amt DID Method Specification (standardized identifier format)
+  \item AMATELUS implementation guidance (Japan-specific deployment)
+  \item Cryptographic foundations and formal proofs
+\end{itemize}
+
 \chapter{Introduction}
 
 \section{AMATELUS Protocol Overview}
@@ -41,6 +73,138 @@ The core design principle emerges from the observation that:
 \end{itemize}
 
 This boundary-clarity eliminates the complexity of distributed infrastructure while preserving cryptographic security properties.
+
+\chapter{did:amt Method Specification}
+
+\section{Abstract}
+
+The \texttt{did:amt} method specifies a Decentralized Identifier (DID) that is algorithmically generated and resolved without reliance on any external Verifiable Data Registry (VDR) such as a blockchain. This method is based on the AMT (Autonomous Meta-Trust) Protocol, designed for high-stakes environments like public administration, where data integrity and operational robustness are paramount.
+
+\section{did:amt Syntax}
+
+The \texttt{did:amt} syntax conforms to the W3C DID Core specification:
+
+\begin{verbatim}
+did-amt              := "did:amt:" method-specific-id
+method-specific-id   := crockford-base32-encoded-sha3-512-hash
+\end{verbatim}
+
+The \texttt{method-specific-id} is a Crockford's Base32 encoded string of the hash value generated through the local creation process.
+
+\subsection{Crockford's Base32 Character Set}
+
+\texttt{0123456789ABCDEFGHJKMNPQRSTVWXYZ}
+
+This character set is chosen to minimize human transcription errors in administrative settings (e.g., avoiding confusion between \texttt{O} and \texttt{0}, or \texttt{I} and \texttt{l}).
+
+\section{CRUD Operations}
+
+\subsection{Create: Local Generation}
+
+A \texttt{did:amt} identifier is generated locally on the owner's device. No network registration is required.
+
+\begin{enumerate}
+  \item Generate Ed25519 key pair
+  \item Prepare information pair: AMT Version Number + Public Key
+  \item Select DID Document template corresponding to AMT version
+  \item Derive DID:
+    \begin{enumerate}
+      \item Encode Ed25519 public key in Crockford's Base32 with multibase prefix \texttt{k}
+      \item Insert into DID Document template
+      \item Normalize template using JCS (RFC 8785)
+      \item Hash with SHA3-512
+      \item Encode hash digest with Crockford's Base32
+      \item Prepend \texttt{did:amt:} to obtain final DID
+    \end{enumerate}
+  \item Finalize DID Document with derived DID
+\end{enumerate}
+
+\subsection{Read: Local Resolution}
+
+The resolution of a \texttt{did:amt} is completed locally by a verifier who receives the \texttt{[AMT Version Number, Public Key]} pair from the owner and executes the same derivation steps.
+
+No external service calls required.
+
+\subsection{Update: Not Supported}
+
+As \texttt{did:amt} DID Documents are immutable, Update operations are not supported. Key rotation is handled by issuing a new DID and linking it via a ``DID Continuity Verifiable Credential'' issued by a trusted third party.
+
+\subsection{Deactivate: Key Destruction}
+
+There is no explicit Deactivate operation. Deactivation is effectively achieved by destroying the associated private key.
+
+\section{Cryptographic Properties}
+
+\subsection{DID Identifier Security}
+
+\begin{itemize}
+  \item \textbf{Hash function}: SHA3-512 (post-quantum collision resistance)
+  \item \textbf{Security level}: 256-bit (quantum-resistant)
+  \item \textbf{Uniqueness}: Permanent uniqueness guaranteed by collision resistance
+\end{itemize}
+
+\subsection{DID Ownership Proof}
+
+\begin{itemize}
+  \item \textbf{Signature algorithm}: Ed25519 (current version)
+  \item \textbf{Security level}: 128-bit (classical only, see future evolution)
+  \item \textbf{Signature verification}: Public key validation against DID Document
+\end{itemize}
+
+\subsection{Privacy}
+
+The avoidance of a Verifiable Data Registry (VDR) ensures that:
+\begin{itemize}
+  \item DIDs are not publicly enumerable
+  \item No central authority records DID creation
+  \item High degree of privacy maintained
+\end{itemize}
+
+\subsection{Operational Robustness}
+
+Crockford's Base32 encoding minimizes human transcription errors during manual entry in administrative processes.
+
+\section{Future Evolution: PQC Transition}
+
+\subsection{Versioning for Cryptographic Agility}
+
+The AMT protocol is designed with ``cryptographic agility,'' allowing for the upgrade of its cryptographic suite through versioning.
+
+\subsection{Foreseeable Changes (AMT v1+)}
+
+\subsubsection{Post-Quantum Signature Migration}
+
+The most critical change will be migration from Ed25519 to a NIST-selected PQC signature algorithm (e.g., CRYSTALS-Dilithium). This ensures DID ownership proof is also secure against quantum computers.
+
+\subsubsection{Binary Data Format Challenge}
+
+PQC signature algorithms require significantly larger public key and signature sizes (several to tens of kilobytes). Future versions will likely specify a binary representation format such as CBOR (Concise Binary Object Representation) for DID Documents to maintain efficiency.
+
+\subsubsection{Interoperability Through Versioning}
+
+The \texttt{AMT Version Number} presented by the owner allows verifiers to accurately determine:
+\begin{itemize}
+  \item Which cryptographic algorithms to use (Ed25519 vs PQC)
+  \item Which data formats to expect (JSON-LD vs CBOR)
+  \item Secure interoperability during transition periods
+\end{itemize}
+
+\subsection{Example: Version 0 DID Document}
+
+\begin{verbatim}
+{
+  "@context": ["https://www.w3.org/ns/did/v1"],
+  "id": "did:amt:0V3R4T7K1Q2P3N4M5J6H7G8F5D4C3B2A...",
+  "verificationMethod": [{
+    "id": "did:amt:0V3R4T7K1Q2P3N4M5J6H7G8F5D4C3B2A...#key-1",
+    "type": "Ed25519VerificationKey2020",
+    "controller": "did:amt:0V3R4T7K1Q2P3N4M5J6H7G8F5D4C3B2A...",
+    "publicKeyMultibase": "k3t635r7r1c0kdf41n2p5h3t2d3n2g5r..."
+  }],
+  "authentication": ["#key-1"],
+  "assertionMethod": ["#key-1"]
+}
+\end{verbatim}
 
 \chapter{Deployment Models}
 
@@ -88,9 +252,9 @@ Examples:
 
 \chapter{Technical Specifications}
 
-\section{did:amt Specification}
+\section{DID Document Design Principles}
 
-\subsection{DID Document Structure}
+The AMT protocol employs did:amt for distributed identifier generation and resolution. The DID Document structure is minimal and stateless:
 
 \begin{verbatim}
 DID := did:amt:H(DIDDoc)
@@ -102,11 +266,11 @@ DIDDoc := {
 }
 \end{verbatim}
 
-where $H$ is a collision-resistant hash function.
+where $H$ is SHA3-512 (collision-resistant hash function).
 
 \subsection{Critical Design Decision: Abolition of serviceEndpoint}
 
-Traditional DID specifications include \texttt{serviceEndpoint} in DIDDocuments. AMATELUS rejects this for principled reasons:
+Traditional DID specifications include \texttt{serviceEndpoint} in DIDDocuments. The AMT protocol rejects this for principled reasons:
 
 \subsubsection{Problem with serviceEndpoint}
 
@@ -117,7 +281,7 @@ Traditional DID specifications include \texttt{serviceEndpoint} in DIDDocuments.
   \item \textbf{Real-world failure}: When provider fails or service terminates, users cannot migrate
 \end{itemize}
 
-\subsubsection{AMATELUS Solution}
+\subsubsection{AMT Solution}
 
 Remove \texttt{serviceEndpoint} from DIDDocument entirely.
 
@@ -137,6 +301,8 @@ Instead:
   \item Endpoint information implicit in application context
   \item No distributed endpoint discovery needed
 \end{itemize}
+
+For complete did:amt specification details, see Chapter 2 (did:amt Method Specification).
 
 \section{DIDComm Integration}
 

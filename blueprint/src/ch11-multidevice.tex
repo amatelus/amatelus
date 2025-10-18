@@ -1,0 +1,789 @@
+\chapter{Multi-Device Support}
+
+\section{Overview}
+
+The Multi-Device Support specification enables a single Holder to operate wallets with different DIDs on multiple devices and safely transfer claims between devices on a per-claim basis.
+
+\subsection{Background}
+
+Identity-related VCs have the following characteristics:
+
+\begin{itemize}
+  \item \textbf{Local Reception Requirement}: Most identity VCs are issued in-person at municipal offices, police stations, etc.
+  \item \textbf{Smartphone Reception}: Smartphone is the typical device for in-person VC reception
+  \item \textbf{PC Utilization Need}: When participating in the AMATELUS network from home, users typically use a PC
+\end{itemize}
+
+Multi-device support is essential to meet these diverse requirements.
+
+\subsection{Design Principles}
+
+\begin{enumerate}
+  \item \textbf{Non-Shared Private Keys}: Private keys are never transferred between devices
+  \item \textbf{Per-Claim Transfer}: Claims (not entire VCs) are transferred individually
+  \item \textbf{Dual Signatures}: Issuer signature + original subject transfer signature
+  \item \textbf{W3C Standard Compliance}: Supports \texttt{holder} $\neq$ \texttt{credentialSubject}
+  \item \textbf{DIDComm Protocol}: Uses standard DID-to-DID communication protocol
+  \item \textbf{End-to-End Encryption}: Transferred data is always encrypted
+  \item \textbf{Protocol-Level Rules}: Claims without signatures are ignored
+\end{enumerate}
+
+\section{Design Philosophy}
+
+\subsection{Comparison with Trust Chain}
+
+AMATELUS provides two distinct mechanisms:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Function} & \textbf{Use Case} & \textbf{Mechanism} & \textbf{DID Relationship} \\
+\hline
+\textbf{Trust Chain} & Schema inheritance, authority delegation & DelegationChain & Different organizational DIDs \\
+\hline
+\textbf{Multi-Device} & Claim sharing & Per-claim transfer & Same Holder's different DIDs \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Claim Transfer Paths}
+
+In the AMATELUS protocol, claims are transferred via two paths:
+
+\begin{enumerate}
+  \item \textbf{Issuer → Holder\_A}: Initial claim issuance
+  \item \textbf{Holder\_A → Holder\_B}: Per-claim transfer (subject of this specification)
+\end{enumerate}
+
+External submissions always use only ZKPs; claims themselves are never revealed externally.
+
+\subsection{Claim Structure}
+
+All claims must have an issuer signature:
+
+\begin{verbatim}
+structure SignedClaim where
+  content : String
+  delegationChain : Option DelegationChain
+  issuerSignature : Signature
+\end{verbatim}
+
+\textbf{Protocol-Level Rule}: Claims without signatures are ignored.
+
+\subsection{Transferred Claim Structure}
+
+Claims transferred between devices carry dual signatures:
+
+\begin{verbatim}
+structure TransferredClaim where
+  originalClaim : SignedClaim
+  originalSubjectDID : ValidDID
+  currentHolderDID : ValidDID
+  transferProof : Signature
+  transferredAt : Nat
+\end{verbatim}
+
+\textbf{Dual Signature Roles}:
+\begin{enumerate}
+  \item \textbf{issuerSignature}: Guarantees claim authenticity (issued by municipality)
+  \item \textbf{transferProof}: Proves claim ownership and transfer consent (owned and transferred by original DID)
+\end{enumerate}
+
+\subsection{W3C Standard Alignment}
+
+W3C VC standards allow \texttt{holder} (VC possessor) and \texttt{credentialSubject} (VC subject) to be different ($\neq$).
+
+Per-claim transfer maintains:
+\begin{itemize}
+  \item Issuer signature remains unchanged (original issuer's signature)
+  \item \texttt{originalSubjectDID} remains unchanged (original DID maintained)
+  \item \texttt{currentHolderDID} is the new device's DID
+  \item PC wallet can possess and use for ZKP generation
+\end{itemize}
+
+\section{Use Cases}
+
+\subsection{Municipal Certificate Reception}
+
+\begin{enumerate}
+  \item Alice brings smartphone to municipal office
+  \item Officer verifies smartphone DID: \texttt{did:amt:alice\_smartphone}
+  \item Municipality issues residence certificate VC to smartphone wallet
+  \item Smartphone wallet receives and stores VC
+\end{enumerate}
+
+\subsection{Claim Transfer to Home PC}
+
+\begin{enumerate}
+  \item Alice returns home
+  \item PC wallet boots: \texttt{did:amt:alice\_pc}
+  \item Smartphone wallet initiates claim transfer request to PC wallet
+  \item Smartphone wallet generates transfer signature (signed with DID\_A private key)
+  \item DIDComm protocol encrypts and transfers claim
+  \item PC wallet receives, verifies, and stores claim
+  \item PC can now participate in AMATELUS network
+\end{enumerate}
+
+\subsection{Claim Utilization (ZKP Generation)}
+
+When PC wallet generates ZKP:
+
+\begin{verbatim}
+{
+  "public_inputs": {
+    "holder_did": "did:amt:alice_pc",
+    "age_gte": 20,
+    "residence": "Tokyo"
+  },
+  "proof": "..."
+}
+\end{verbatim}
+
+\textbf{Important Notes}:
+\begin{itemize}
+  \item ZKP generation is performed by PC wallet
+  \item \texttt{originalSubjectDID} (smartphone's original DID) is secret input
+  \item \texttt{currentHolderDID} (PC's DID) is public input
+  \item Both issuer and transfer signatures are verified within ZKP
+  \item \textbf{Only required claims are input} (other claims are unnecessary)
+\end{itemize}
+
+\section{DIDComm Communication Protocol}
+
+\subsection{DIDComm Overview}
+
+\textbf{DIDComm (DID Communication)} is the standard protocol enabling secure communication between DIDs:
+
+\begin{itemize}
+  \item \textbf{Specification}: DIDComm Messaging v2.0
+  \item \textbf{Features}:
+    \begin{itemize}
+      \item End-to-end encryption
+      \item Authenticated messaging
+      \item Transport-agnostic (HTTP, WebSocket, Bluetooth, etc.)
+    \end{itemize}
+\end{itemize}
+
+\subsection{DIDComm Message Structure}
+
+\subsubsection{Claim Transfer Request}
+
+\begin{verbatim}
+{
+  "type": "https://amatelus.org/protocols/claim-transfer/2.0/request",
+  "id": "uuid-1234-5678",
+  "from": "did:amt:alice_pc",
+  "to": "did:amt:alice_smartphone",
+  "created_time": 1673568000,
+  "body": {
+    "request_type": "filtered_claims",
+    "filters": {
+      "content_patterns": ["name", "address"],
+      "issuer": "did:amt:municipality123"
+    }
+  }
+}
+\end{verbatim}
+
+\subsubsection{Claim Transfer Response}
+
+\begin{verbatim}
+{
+  "type": "https://amatelus.org/protocols/claim-transfer/2.0/response",
+  "from": "did:amt:alice_smartphone",
+  "to": "did:amt:alice_pc",
+  "body": {
+    "transferred_claims": [
+      {
+        "original_claim": {
+          "content": "{\"name\": \"Alice\", \"address\": \"Tokyo\"}",
+          "issuer_signature": "..."
+        },
+        "original_subject_did": "did:amt:alice_smartphone",
+        "current_holder_did": "did:amt:alice_pc",
+        "transfer_proof": "...",
+        "transferred_at": 1673568010
+      }
+    ],
+    "success": true
+  }
+}
+\end{verbatim}
+
+\subsection{Authentication Flow}
+
+\subsubsection{Device Pairing}
+
+Initial pairing of two wallets:
+
+\begin{enumerate}
+  \item PC displays QR code (DID + temporary token)
+  \item Smartphone scans QR code
+  \item Smartphone sends DIDComm connection request
+  \item PC prompts user for approval
+  \item User approves on PC
+  \item Both devices add peer DID to trusted list
+\end{enumerate}
+
+\subsubsection{Mutual Authentication}
+
+Communication between paired devices:
+
+\begin{enumerate}
+  \item Request side signs DIDComm message
+  \item Response side verifies signature and checks trusted list
+  \item Response side sends encrypted response
+  \item Request side decrypts and verifies response
+\end{enumerate}
+
+\section{Claim Transfer Mechanism}
+
+\subsection{Transferred Data}
+
+Data sent during claim transfer:
+
+\begin{verbatim}
+{
+  "original_claim": {
+    "content": "{\"name\": \"Alice\", \"address\": \"Tokyo\"}",
+    "issuer_signature": "..."
+  },
+  "original_subject_did": "did:amt:alice_smartphone",
+  "current_holder_did": "did:amt:alice_pc",
+  "transfer_proof": "...",
+  "transferred_at": 1673568010
+}
+\end{verbatim}
+
+\textbf{Unchanged Elements}:
+\begin{itemize}
+  \item \texttt{original\_claim.content}: Claim content
+  \item \texttt{original\_claim.issuer\_signature}: Issuer signature
+  \item \texttt{original\_subject\_did}: Original holder DID (smartphone)
+\end{itemize}
+
+\textbf{Added Elements}:
+\begin{itemize}
+  \item \texttt{transfer\_proof}: Transfer signature by original subject (required)
+  \item \texttt{current\_holder\_did}: Current holder DID (PC)
+  \item \texttt{transferred\_at}: Transfer timestamp
+\end{itemize}
+
+\subsection{Transfer Signature Generation}
+
+Smartphone wallet generates transfer signature:
+
+\begin{verbatim}
+def prepareClaimTransfer
+    (claim : SignedClaim)
+    (originalSubjectDID : ValidDID)
+    (currentHolderDID : ValidDID)
+    (timestamp : Nat) : TransferredClaim :=
+  let message := encodeTransferMessage claim.content
+                   originalSubjectDID currentHolderDID
+  let transferProof := sign message originalSubjectSecretKey
+  {
+    originalClaim := claim,
+    originalSubjectDID := originalSubjectDID,
+    currentHolderDID := currentHolderDID,
+    transferProof := transferProof,
+    transferredAt := timestamp
+  }
+\end{verbatim}
+
+\subsection{Receiving Wallet Validation}
+
+PC wallet validates received claim:
+
+\begin{verbatim}
+def validateClaim
+    (tc : TransferredClaim)
+    (issuerDID : ValidDID)
+    (trustedAnchors : List ValidDID) : Bool :=
+  let issuerSigValid := tc.originalClaim.verify issuerDID
+  let transferSigValid := tc.verifyTransferProof
+  let issuerTrusted := trustedAnchors.contains issuerDID
+  issuerSigValid && transferSigValid && issuerTrusted
+\end{verbatim}
+
+\subsection{Receiving Wallet Storage}
+
+PC wallet stores received claim in this structure:
+
+\begin{verbatim}
+{
+  "claim_id": "uuid-claim-001",
+  "original_claim": {
+    "content": "{\"name\": \"Alice\"}",
+    "issuer_signature": "..."
+  },
+  "original_subject_did": "did:amt:alice_smartphone",
+  "current_holder_did": "did:amt:alice_pc",
+  "transfer_proof": "...",
+  "storage_metadata": {
+    "received_at": "2025-01-13T12:00:00Z",
+    "received_from": "did:amt:alice_smartphone",
+    "issuer_did": "did:amt:municipality123"
+  }
+}
+\end{verbatim}
+
+\section{ZKP Efficiency}
+
+\subsection{Per-Claim Transfer Advantages}
+
+\textbf{Problem with V1.0 (VC-based transfer)}:
+\begin{itemize}
+  \item Transferring entire VC requires all claims as ZKP inputs during generation
+  \item Unnecessary claims bloat the circuit size
+  \item High computational cost with privacy concerns
+\end{itemize}
+
+\textbf{Advantages of V2.0 (Per-claim transfer)}:
+\begin{itemize}
+  \item Only required claims input to ZKP circuit
+  \item Circuit size minimized, computational cost reduced
+  \item Enhanced privacy (unnecessary claims not handled)
+  \item Dual signatures provide complete security guarantee
+\end{itemize}
+
+\subsection{ZKP Generation Process}
+
+When PC wallet generates ZKP:
+
+\begin{verbatim}
+structure ZKPSecretInputsForTransferredClaim where
+  claimContent : String
+  issuerSignature : Signature
+  transferSignature : Signature
+  originalSubjectDID : ValidDID
+
+structure ZKPPublicInputsForTransferredClaim where
+  currentHolderDID : ValidDID
+  publicAttributes : List (String $\times$ String)
+\end{verbatim}
+
+\textbf{ZKP Circuit Verification}:
+\begin{enumerate}
+  \item \texttt{issuerSignature} is valid (municipality issued)
+  \item \texttt{transferSignature} is valid (DID\_A owns and transferred)
+  \item \texttt{originalSubjectDID} matches subject in claim (integrity)
+\end{enumerate}
+
+\subsection{Computational Cost Comparison}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Method} & \textbf{Input Claims} & \textbf{Circuit Size} & \textbf{Computation Cost} \\
+\hline
+\textbf{V1.0 (VC transfer)} & All claims (5) & Large & High \\
+\hline
+\textbf{V2.0 (Per-claim transfer)} & Required only (1) & Small & Low \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Privacy Enhancement}
+
+Per-claim transfer enables:
+\begin{itemize}
+  \item Excluding unnecessary claims from ZKP circuit
+  \item Hiding existence of unnecessary claims
+  \item Improved selective disclosure granularity
+\end{itemize}
+
+\section{Security Considerations}
+
+\subsection{Private Key Non-Sharing}
+
+\textbf{Critical Principle}: Private keys are never transferred between devices
+
+\begin{itemize}
+  \item Each device maintains independent DID and key pair
+  \item Only claim data (issuer signature + transfer signature) is transferred
+  \item Private key compromise impact is limited to that device
+\end{itemize}
+
+\subsection{Dual Signature Security}
+
+Per-claim transfer provides complete security through dual signatures:
+
+\begin{enumerate}
+  \item \textbf{issuerSignature}:
+    \begin{itemize}
+      \item Guarantees claim authenticity
+      \item Proves issuance by issuer (municipality)
+      \item Prevents tampering
+    \end{itemize}
+
+  \item \textbf{transferProof}:
+    \begin{itemize}
+      \item Proves claim ownership
+      \item Proves original subject (DID\_A) owned it
+      \item Proves transfer consent
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Security Theorem}:
+\begin{verbatim}
+theorem claim_transfer_preserves_issuer_signature :
+  ∀ (claim : SignedClaim)
+    (originalSubjectDID currentHolderDID : ValidDID)
+    (timestamp : Nat),
+  let tc := prepareClaimTransfer claim originalSubjectDID
+               currentHolderDID timestamp
+  tc.originalClaim.issuerSignature = claim.issuerSignature
+\end{verbatim}
+
+\subsection{End-to-End Encryption}
+
+All claim transfers use DIDComm encryption:
+
+\begin{enumerate}
+  \item Sender encrypts with recipient's public key
+  \item Transport layer applies additional encryption (optional, e.g., TLS)
+  \item Recipient decrypts with own private key
+\end{enumerate}
+
+\subsection{Device Authentication}
+
+\subsubsection{Pairing-Time Authentication}
+
+\begin{itemize}
+  \item QR code + temporary token
+  \item Explicit user approval
+  \item Registration in trusted list
+\end{itemize}
+
+\subsubsection{Transfer-Time Authentication}
+
+\begin{itemize}
+  \item Trusted list verification
+  \item DIDComm signature verification
+  \item Timestamp verification (replay attack prevention)
+\end{itemize}
+
+\subsection{Claim Integrity Verification}
+
+Receiving wallet verifies:
+
+\begin{verbatim}
+def validateClaim
+    (tc : TransferredClaim)
+    (issuerDID : ValidDID)
+    (trustedAnchors : List ValidDID) : Bool :=
+  let issuerSigValid := tc.originalClaim.verify issuerDID
+  let transferSigValid := tc.verifyTransferProof
+  let issuerTrusted := trustedAnchors.contains issuerDID
+  issuerSigValid && transferSigValid && issuerTrusted
+\end{verbatim}
+
+\subsection{Man-in-the-Middle (MITM) Attack Mitigation}
+
+DIDComm protocol provides:
+
+\begin{enumerate}
+  \item \textbf{AEAD}: Tampering detection
+  \item \textbf{DID Signatures}: Sender authenticity guarantee
+  \item \textbf{Pairing Confirmation}: User approval
+  \item \textbf{Dual Signatures}: Complete integrity guarantee
+\end{enumerate}
+
+\subsection{Privacy Protection}
+
+\begin{itemize}
+  \item \textbf{Claim Transfer Secrecy}: Transfer fact unknown to third parties
+  \item \textbf{originalSubjectDID Protection}: Secret input during ZKP generation
+  \item \textbf{Selective Transfer}: Only required claims transferred
+  \item \textbf{Metadata Separation}: Transfer history stored locally only
+\end{itemize}
+
+\subsection{Protocol-Level Guarantee}
+
+\textbf{Claims without signatures are ignored}:
+\begin{itemize}
+  \item All claims must have issuer signature
+  \item Transferred claims must have transfer signature
+  \item Unsigned claims automatically rejected at protocol level
+  \item Tampering attempts automatically fail
+\end{itemize}
+
+\section{Implementation Guidelines}
+
+\subsection{Wallet Implementation Requirements}
+
+\subsubsection{Essential Features}
+
+\begin{enumerate}
+  \item \textbf{DIDComm Support}
+    \begin{itemize}
+      \item Implement DIDComm v2.0 protocol
+      \item Support end-to-end encryption
+    \end{itemize}
+
+  \item \textbf{Device Management}
+    \begin{itemize}
+      \item Manage trusted device list
+      \item Implement pairing (QR code, etc.)
+    \end{itemize}
+
+  \item \textbf{Claim Transfer}
+    \begin{itemize}
+      \item Support claim sending (with filtering)
+      \item Generate transfer signatures (original subject's private key)
+      \item Support claim receiving (with dual signature verification)
+    \end{itemize}
+
+  \item \textbf{ZKP Generation Extension}
+    \begin{itemize}
+      \item Support \texttt{currentHolderDID} as public input
+      \item Support \texttt{originalSubjectDID} as secret input
+      \item Verify both issuer and transfer signatures in ZKP
+      \item Input only required claims (others unnecessary)
+    \end{itemize}
+
+  \item \textbf{Signature Verification}
+    \begin{itemize}
+      \item Verify issuer signatures
+      \item Verify transfer signatures
+      \item Reject unsigned claims (protocol-level)
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Recommended Features}
+
+\begin{enumerate}
+  \item \textbf{Selective Transfer}
+    \begin{itemize}
+      \item Transfer specific claims only
+      \item Content pattern filtering
+      \item Issuer-based filtering
+    \end{itemize}
+
+  \item \textbf{Transfer History}
+    \begin{itemize}
+      \item Log device and transfer timestamp
+      \item Support transfer revocation (revocation notification)
+    \end{itemize}
+
+  \item \textbf{Automatic Synchronization}
+    \begin{itemize}
+      \item Auto-transfer new claims
+      \item Configure inter-device sync
+    \end{itemize}
+
+  \item \textbf{Claim Management}
+    \begin{itemize}
+      \item Per-claim storage and search
+      \item Display delegation chains
+      \item Claim selection UI for ZKP generation
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Transport Layer Options}
+
+DIDComm supports multiple transports:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Transport} & \textbf{Use Case} & \textbf{Characteristics} \\
+\hline
+\textbf{HTTP/HTTPS} & Internet via cloud & Cloud relay possible \\
+\hline
+\textbf{WebSocket} & Real-time communication & Bidirectional \\
+\hline
+\textbf{Bluetooth} & Local communication & No internet required \\
+\hline
+\textbf{NFC} & Proximity communication & Very short range \\
+\hline
+\end{tabular}
+\end{table}
+
+Recommended configuration:
+\begin{itemize}
+  \item Same network: WebSocket (fast)
+  \item Different networks: HTTPS (stable)
+  \item Offline: Bluetooth (no internet)
+\end{itemize}
+
+\subsection{Error Handling}
+
+\subsubsection{Transfer Failure Response}
+
+\begin{verbatim}
+{
+  "type": "https://amatelus.org/protocols/claim-transfer/2.0/error",
+  "thid": "uuid-1234-5678",
+  "body": {
+    "error_code": "SIGNATURE_VERIFICATION_FAILED",
+    "error_message": "Signature verification failed",
+    "details": {
+      "claim_id": "uuid-claim-001",
+      "issuer": "did:amt:municipality123"
+    }
+  }
+}
+\end{verbatim}
+
+\subsubsection{Retry Logic}
+
+\begin{enumerate}
+  \item Detect transfer failure
+  \item Retry with exponential backoff (max 3 times)
+  \item Notify user on final failure
+  \item Log failure
+\end{enumerate}
+
+\subsection{Testing Strategy}
+
+\subsubsection{Functional Testing}
+
+\begin{itemize}
+  \item Pairing success/failure
+  \item Claim transfer success/failure
+  \item Issuer signature verification
+  \item Transfer signature verification
+  \item Dual signature verification
+  \item Filtering functionality
+  \item Unsigned claim rejection
+\end{itemize}
+
+\subsubsection{Security Testing}
+
+\begin{itemize}
+  \item MITM attack simulation
+  \item Invalid claim rejection
+  \item Signature tampering detection
+  \item Untrusted device rejection
+  \item Automatic unsigned claim rejection
+\end{itemize}
+
+\subsubsection{Performance Testing}
+
+\begin{itemize}
+  \item Large volume claim transfer performance
+  \item Encryption/decryption overhead
+  \item Network latency handling
+  \item ZKP generation time comparison (V1.0 vs V2.0)
+\end{itemize}
+
+\subsubsection{ZKP Efficiency Testing}
+
+\begin{itemize}
+  \item Circuit size comparison by claim count
+  \item Performance with required claims only
+  \item Comparison with all claims
+\end{itemize}
+
+\section{Future Extensions}
+
+\subsection{Cloud Synchronization}
+
+Use trusted cloud service as relay:
+
+\begin{verbatim}
+Smartphone → [Encrypted] → Cloud → [Decrypted] → PC
+\end{verbatim}
+
+Requirements:
+\begin{itemize}
+  \item End-to-end encryption mandatory
+  \item Cloud cannot access claim content
+  \item Zero-knowledge proof-based backup
+  \item Per-claim synchronization
+\end{itemize}
+
+\subsection{Group Wallet}
+
+Safe claim sharing within family or organization:
+
+\begin{verbatim}
+Parent Wallet ↔ Child Wallet (guardian function)
+Corporate Wallet ↔ Employee Wallet (role proof)
+\end{verbatim}
+
+Requirements:
+\begin{itemize}
+  \item Per-claim sharing control
+  \item Dual signatures guarantee integrity
+  \item Improved selective disclosure granularity
+\end{itemize}
+
+\subsection{Conditional Transfer}
+
+Enable claim transfer only under specific conditions:
+
+\begin{verbatim}
+{
+  "transfer_policy": {
+    "allowed_devices": ["did:amt:alice_pc", "did:amt:alice_tablet"],
+    "allowed_time": "09:00-18:00",
+    "require_biometric": true,
+    "max_transfers": 3,
+    "allowed_claims": ["name", "address"]
+  }
+}
+\end{verbatim}
+
+\subsection{Trust Chain Integration}
+
+Combine N-level delegation with per-claim transfer:
+
+\begin{itemize}
+  \item Transfer claims containing delegation chains
+  \item Verify delegation chains at transfer destination
+  \item ZKP efficiency (required claims only)
+\end{itemize}
+
+\section{Formal Verification}
+
+Theorems formally proven in \texttt{AMATELUS/MultiDevice.lean}:
+
+\begin{enumerate}
+  \item \textbf{claim\_transfer\_preserves\_issuer\_signature}
+    \begin{itemize}
+      \item Issuer signature preserved during transfer
+    \end{itemize}
+
+  \item \textbf{claim\_transfer\_preserves\_content}
+    \begin{itemize}
+      \item Claim content preserved during transfer
+    \end{itemize}
+
+  \item \textbf{transferred\_claim\_has\_transfer\_proof}
+    \begin{itemize}
+      \item Transferred claims always have transfer signature
+    \end{itemize}
+
+  \item \textbf{device\_trust\_symmetric}
+    \begin{itemize}
+      \item Device trust verification symmetry
+    \end{itemize}
+
+  \item \textbf{valid\_claim\_stays\_valid\_after\_transfer}
+    \begin{itemize}
+      \item Valid claims remain valid after transfer
+    \end{itemize}
+\end{enumerate}
+
+These theorems formally guarantee the security of per-claim transfer.
+
+\section{Change Log}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Version} & \textbf{Date} & \textbf{Changes} \\
+\hline
+1.0 & 2025-01-13 & Initial version (VC transfer) \\
+\hline
+2.0 & 2025-01-13 & Changed to per-claim transfer, dual signatures, ZKP efficiency \\
+\hline
+\end{tabular}
+\end{table}

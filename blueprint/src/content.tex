@@ -1,7 +1,495 @@
-% In this file you should put the actual content of the blueprint.
-% It will be used both by the web and the print version.
-% It should *not* include the \begin{document}
-%
-% If you want to split the blueprint content into several files then
-% the current file can be a simple sequence of \input. Otherwise It
-% can start with a \section or \chapter for instance.
+% AMATELUS Protocol Blueprint
+% English specification based on formal verification and architectural analysis
+
+\chapter{Introduction}
+
+\section{AMATELUS Protocol Overview}
+
+The AMATELUS protocol is a cryptographic authentication mechanism integrating Decentralized Identifiers (DIDs), Verifiable Credentials (VCs), and Zero-Knowledge Proofs (ZKPs).
+
+\subsection{What AMATELUS Provides}
+
+AMATELUS delivers the following capabilities:
+\begin{itemize}
+  \item Public key infrastructure (PKI) based distributed identifiers
+  \item Zero-knowledge proof-based attribute ownership verification
+  \item Verifiable credentials for claim issuance and storage
+  \item Cryptographic trust guarantees
+\end{itemize}
+
+\subsection{What AMATELUS Does NOT Provide}
+
+Critically, AMATELUS \emph{does not} provide:
+\begin{itemize}
+  \item Centralized directory services (DID resolution is local-only)
+  \item Mediation or relay infrastructure
+  \item User authorization decisions
+  \item Communication endpoint management
+  \item Message delivery guarantees
+\end{itemize}
+
+\subsection{Design Philosophy}
+
+AMATELUS is a \emph{cryptographic authentication mechanism}, not a communication infrastructure.
+
+The core design principle emerges from the observation that:
+\begin{itemize}
+  \item Every real-world service (banking, government, voting, SNS) requires a centralized service provider
+  \item AMATELUS provides only cryptographic trust verification
+  \item Service providers maintain responsibility for endpoints, authorization, and communication security
+  \item Individual users bear zero burden for endpoint contract management
+\end{itemize}
+
+This boundary-clarity eliminates the complexity of distributed infrastructure while preserving cryptographic security properties.
+
+\chapter{Deployment Models}
+
+\section{Service-Driven Model (Primary)}
+
+In the predominant deployment model:
+\begin{enumerate}
+  \item Service provider application (bank, government, SNS) initiates
+  \item Wallet is invoked from service app via OS-level Intent/deeplink
+  \item Wallet generates DIDComm message containing:
+    \begin{itemize}
+      \item Communication DID (ephemeral or persistent based on service)
+      \item DID Document (public key only)
+      \item VC/ZKP proving required attributes
+    \end{itemize}
+  \item DIDComm message sent to service provider (HTTPS, typically)
+  \item Service provider performs:
+    \begin{itemize}
+      \item Cryptographic verification of ZKP/VC
+      \item Authorization decision
+      \item Service execution
+    \end{itemize}
+\end{enumerate}
+
+Trust origin: Service provider (centralized, established).
+
+Endpoint lifecycle: Service-scoped (session-based).
+
+\section{Physical Proximity Model (Supplementary)}
+
+For in-person scenarios:
+\begin{enumerate}
+  \item Bluetooth Low Energy (BLE) provides discovery via physical proximity
+  \item Public services (municipal offices, event gates)
+  \item Session completes within local network
+  \item No persistent endpoint contracts
+\end{enumerate}
+
+Examples:
+\begin{itemize}
+  \item Age verification at municipal counter
+  \item Facility access control
+  \item In-person credential verification
+\end{itemize}
+
+\chapter{Technical Specifications}
+
+\section{did:amt Specification}
+
+\subsection{DID Document Structure}
+
+\begin{verbatim}
+DID := did:amt:H(DIDDoc)
+
+DIDDoc := {
+  id: DID,
+  publicKey: PublicKey,
+  metadata: Metadata
+}
+\end{verbatim}
+
+where $H$ is a collision-resistant hash function.
+
+\subsection{Critical Design Decision: Abolition of serviceEndpoint}
+
+Traditional DID specifications include \texttt{serviceEndpoint} in DIDDocuments. AMATELUS rejects this for principled reasons:
+
+\subsubsection{Problem with serviceEndpoint}
+
+\begin{itemize}
+  \item \textbf{Short lifetime}: Service endpoint contracts last months to few years
+  \item \textbf{Individual burden}: Users must manage contract renewals and provider changes
+  \item \textbf{Unrealistic assumption}: Assumes individual can maintain stable, contracted endpoints
+  \item \textbf{Real-world failure}: When provider fails or service terminates, users cannot migrate
+\end{itemize}
+
+\subsubsection{AMATELUS Solution}
+
+Remove \texttt{serviceEndpoint} from DIDDocument entirely.
+
+Instead:
+\begin{itemize}
+  \item DID lifetime: Long-term (public-key-based, years to decades)
+  \item Endpoint lifetime: Session-scoped (minutes to hours)
+  \item Endpoint management: Service provider responsibility only
+  \item Individual burden: Zero
+\end{itemize}
+
+\subsubsection{Implementation Reality}
+
+\begin{itemize}
+  \item Wallet is invoked by service app (already knows its own endpoint)
+  \item DIDDocument contains only public key for cryptographic verification
+  \item Endpoint information implicit in application context
+  \item No distributed endpoint discovery needed
+\end{itemize}
+
+\section{DIDComm Integration}
+
+AMATELUS employs DIDComm Messaging v2.1 as the sole communication protocol.
+
+\subsection{Message Structure}
+
+\begin{verbatim}
+DIDCommMessageSend := {
+  senderDID: ValidDID,
+  senderDoc: Option<ValidDIDDocument>,
+  vcs: List<ValidVC>,
+  zkp: Option<ValidZKP>
+}
+\end{verbatim}
+
+\subsection{Security Properties}
+
+\begin{itemize}
+  \item \textbf{ECDH-1PU authenticated encryption}: Sender identity authenticated exclusively to recipient
+  \item \textbf{Message-level security}: Independent of transport layer
+  \item \textbf{Transport agnosticism}: Works over HTTPS, BLE, WebSocket, etc.
+  \item \textbf{Sender anonymity (optional)}: Anoncrypt layer available if needed
+\end{itemize}
+
+\section{Verifiable Credentials}
+
+\subsection{VC Structure}
+
+\begin{verbatim}
+VC := {
+  issuer: DID_issuer,
+  subject: DID_subject,
+  claims: Claims,
+  signature: Signature,
+  credentialStatus: RevocationInfo,
+  deLinkageInfo: Option<DeLinkageInfo>
+}
+\end{verbatim}
+
+\subsection{Delinkage Information}
+
+To prevent cross-service correlation:
+
+\begin{verbatim}
+DeLinkageInfo := {
+  identityDID: DID,        // Long-term identity DID
+  communicationDID: DID    // Session-specific DID
+}
+\end{verbatim}
+
+ZKP proves ownership of both DIDs without revealing either to external parties.
+
+\section{Zero-Knowledge Proofs}
+
+\subsection{Dual Nonce Binding}
+
+\begin{verbatim}
+ZKP := (π, x, nonce_holder, nonce_verifier)
+where π proves knowledge of w such that
+R(x, w, nonce_holder, nonce_verifier) = 1
+\end{verbatim}
+
+\subsection{Nonce Generation and Binding}
+
+Both Holder and Verifier generate independent nonces (≥128 bits):
+
+\begin{enumerate}
+  \item Verifier generates \texttt{nonce2} (challenge)
+  \item Verifier sends \texttt{nonce2} to Holder
+  \item Holder generates \texttt{nonce1} independently
+  \item Holder combines: \texttt{nonce\_combined = H(nonce1 || nonce2)}
+  \item ZKP bound to \texttt{nonce\_combined}
+  \item Holder returns (ZKP, nonce1) to Verifier
+  \item Verifier verifies both nonces cryptographically
+\end{enumerate}
+
+\subsection{Security Property: Mutual Defense}
+
+If either party generates unique nonces:
+\begin{itemize}
+  \item Holder bug (fixed nonce1) $\Rightarrow$ Verifier's nonce2 provides protection
+  \item Verifier bug (fixed nonce2) $\Rightarrow$ Holder's nonce1 provides protection
+  \item Both unique $\Rightarrow$ Complete protection from replay
+\end{itemize}
+
+Neither party depends solely on the other's implementation quality.
+
+\subsection{Computational Efficiency}
+
+\begin{itemize}
+  \item \textbf{Offline precomputation}: Heavy circuit evaluation (minutes to hours)
+  \item \textbf{Real-time nonce binding}: Light operations only (milliseconds to hundreds of milliseconds)
+  \item \textbf{UX compatibility}: User interaction completes within tolerance (3 seconds)
+\end{itemize}
+
+\chapter{Trust Architecture}
+
+\section{Responsibility Boundaries}
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Component} & \textbf{AMATELUS} & \textbf{Service Provider} \\
+\hline
+Public Key Infrastructure & \checkmark & -- \\
+DID generation & \checkmark & -- \\
+VC issuance/validation (1-layer) & \checkmark & Policy \\
+ZKP generation/verification & \checkmark & -- \\
+Endpoint management & -- & \checkmark \\
+Message delivery & -- & \checkmark \\
+Authorization decisions & -- & \checkmark \\
+Communication security (TLS) & -- & \checkmark \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Trust Origin}
+
+\begin{itemize}
+  \item \textbf{Cryptographic trust}: Originating from AMATELUS protocol
+  \item \textbf{Operational trust}: Originating from service provider (centralized)
+  \item \textbf{Authorization trust}: Originating from service provider (centralized)
+\end{itemize}
+
+The separation prevents AMATELUS from assuming responsibilities it cannot scale to manage globally.
+
+\section{One-Layer Trust Limitation}
+
+AMATELUS validates only 1-layer VC chains:
+
+\begin{itemize}
+  \item \textbf{0-layer}: Direct issuance from trusted anchor
+  \item \textbf{1-layer}: Delegated issuance (trustee validated against anchor)
+  \item \textbf{2+ layers}: Explicitly \emph{not} validated by AMATELUS protocol
+\end{itemize}
+
+This prevents:
+\begin{itemize}
+  \item Delegation chain attacks
+  \item Circular credential verification
+  \item Unbounded revocation propagation
+\end{itemize}
+
+\chapter{Cryptographic Foundations}
+
+\section{Security Assumptions}
+
+\begin{itemize}
+  \item \textbf{Collision-resistant hash}: SHA3-512 provides 128-bit security against quantum adversaries
+  \item \textbf{Unforgeable signatures}: Dilithium2 provides 128-bit security against quantum adversaries
+  \item \textbf{ZKP soundness}: Standard zero-knowledge properties (completeness, soundness, zero-knowledge)
+  \item \textbf{Independent nonce generation}: Cryptographically random nonces with sufficient entropy
+\end{itemize}
+
+\section{Threat Model and Mitigations}
+
+\subsection{Impersonation Attack (Different Secret Key)}
+
+\begin{itemize}
+  \item \textbf{Attack}: Attacker uses different secret key to forge ZKP
+  \item \textbf{Defense}: DIDComm makes sender's public key known to recipient
+  \item \textbf{Result}: Different secret key $\Rightarrow$ signature verification fails
+  \item \textbf{Protocol layer}: Cryptographically prevented
+\end{itemize}
+
+\subsection{Replay Attack (Same ZKP, Same User)}
+
+\begin{itemize}
+  \item \textbf{Attack}: Legitimate user reuses identical ZKP in new session
+  \item \textbf{Defense}: Dual nonce binding ensures each ZKP corresponds to unique nonce pair
+  \item \textbf{Result}: Session-specific ZKP cannot be reused
+  \item \textbf{Service layer}: Optional nonce history management (service responsibility)
+\end{itemize}
+
+\subsection{Man-in-the-Middle Attack}
+
+\begin{itemize}
+  \item \textbf{Attack}: Intermediary intercepts and modifies messages
+  \item \textbf{Defense}: ECDH-1PU authenticated encryption (service provider responsibility)
+  \item \textbf{Result}: Message authentication prevents undetected modification
+  \item \textbf{Transport layer}: TLS/HTTPS (service provider responsibility)
+\end{itemize}
+
+\subsection{Sybil Attack (Multiple DIDs)}
+
+\begin{itemize}
+  \item \textbf{Attack}: Single entity controls multiple DIDs to gain asymmetric advantages
+  \item \textbf{Protocol position}: Multiple DID possession is intentional design for privacy
+  \item \textbf{Mitigation}: Anonymous Hash Identifier (AHI) restricts per-audit-domain abuse
+  \item \textbf{Social layer}: Operational policy and service-specific restrictions
+\end{itemize}
+
+\chapter{Privacy Architecture}
+
+\section{Anti-Linkability Across Services}
+
+Multiple DIDs enable cross-service unlinkability:
+
+\begin{verbatim}
+∀ DID₁, DID₂, Service₁, Service₂:
+  (Service₁ ≠ Service₂) ∧
+  Link(DID₁, DID₂) requires 2^128 quantum operations
+\end{verbatim}
+
+\section{Zero-Knowledge Property}
+
+ZKP reveal attribute ownership without revealing identity:
+
+\begin{itemize}
+  \item \textbf{Public}: Attribute claimed (age ≥ 18)
+  \item \textbf{Hidden}: Identity proving the attribute
+  \item \textbf{Hidden}: Secret key generating the proof
+  \item \textbf{Verified}: ZKP authenticity via public key
+\end{itemize}
+
+\section{Deniable Authentication}
+
+For privacy-sensitive scenarios, anonymous encryption (Anoncrypt) available:
+
+\begin{itemize}
+  \item Sender identity hidden from intermediaries
+  \item Recipient verifies proof authenticity (still authenticated)
+  \item Sender maintains plausible deniability
+\end{itemize}
+
+\chapter{Implementation Guidance}
+
+\section{Wallet Implementation Requirements}
+
+\subsection{Secret Key Management}
+
+\begin{itemize}
+  \item Store private keys in secure enclave (iOS/Android hardware)
+  \item Never export unencrypted private keys
+  \item Implement key derivation from user-memorizable seeds (BIP39 compatible)
+\end{itemize}
+
+\subsection{DID Lifecycle}
+
+\subsubsection{Identity DIDs}
+
+\begin{itemize}
+  \item Generated once per credential lifetime (typically 1-10 years)
+  \item Persisted across wallet updates and device changes
+  \item Associated with formal credentials (passport, license, etc.)
+\end{itemize}
+
+\subsubsection{Communication DIDs}
+
+\begin{itemize}
+  \item Generated per service engagement or per session (configurable)
+  \item Destroyed if VC not issued (one-time verification)
+  \item Persisted if VC issued (login reuse case)
+  \item Linked to counterparty DID in wallet for session continuation
+\end{itemize}
+
+\subsection{VC Storage}
+
+\begin{itemize}
+  \item Store issued VCs with \texttt{deLinkageInfo}
+  \item Enable offline VC verification
+  \item Implement selective disclosure (claim subset presentation)
+  \item Track VC issuance context (service, timestamp, nonce)
+\end{itemize}
+
+\section{Service Provider Integration}
+
+\subsection{DIDComm Endpoint Setup}
+
+\begin{enumerate}
+  \item Publish service endpoint URL (HTTPS with valid TLS)
+  \item Accept POST requests with DIDComm messages
+  \item Parse and cryptographically verify ZKP
+  \item Execute service logic based on verified claims
+  \item Return VC (if registration service) or result (if verification-only)
+\end{enumerate}
+
+\subsection{Authorization Decision Points}
+
+Services must decide:
+
+\begin{itemize}
+  \item Which claims are required for service access
+  \item Which DIDs are trusted for VC validation
+  \item How to handle multiple DIDs from same user (user linking policy)
+  \item Whether to issue persistent VC or one-time verification
+\end{itemize}
+
+\subsection{Nonce Management (Optional Service Feature)}
+
+If replay prevention beyond DIDComm is required:
+
+\begin{enumerate}
+  \item Generate unique nonce per session
+  \item Send nonce to wallet
+  \item Verify returned ZKP includes nonce in cryptographic binding
+  \item Record used nonces to prevent reuse
+  \item Clean up nonce history based on session TTL
+\end{enumerate}
+
+Note: Nonce management is \emph{optional} at service layer, not protocol-required.
+
+\section{Deployment Scenarios}
+
+\subsection{One-Time Verification (Age Confirmation)}
+
+\begin{itemize}
+  \item Holder generates ephemeral communication DID
+  \item Generates ZKP proving age ≥ 18
+  \item Verifier validates ZKP, permits or denies access
+  \item Communication DID destroyed (no VC issued)
+  \item No persistent state
+\end{itemize}
+
+\subsection{Service Registration (Account Opening)}
+
+\begin{itemize}
+  \item Holder generates communication DID (persistent)
+  \item Generates ZKP proving identity claims
+  \item Issuer validates, creates account
+  \item Issuer generates VC (e.g., account holder credential)
+  \item Holder stores VC and communication DID-to-service association
+  \item Later: Login reuses same communication DID
+\end{itemize}
+
+\subsection{Continuous Authentication (SNS, Messaging)}
+
+\begin{itemize}
+  \item Holder generates ephemeral communication DID per login
+  \item Generates ZKP proving phone number ownership
+  \item Service validates, establishes session
+  \item Session token replaces ZKP for subsequent requests
+  \item Communication DID may be stored for optional reconnection hint
+\end{itemize}
+
+\chapter{Conclusion}
+
+AMATELUS provides a clean separation of concerns:
+
+\begin{itemize}
+  \item \textbf{Cryptographic layer}: AMATELUS ensures authentication and privacy
+  \item \textbf{Service layer}: Service providers ensure authorization and delivery
+  \item \textbf{User layer}: Users choose which services and DIDs to use
+\end{itemize}
+
+This architecture achieves:
+\begin{itemize}
+  \item \textbf{Security}: Formal cryptographic guarantees
+  \item \textbf{Scalability}: Linear throughput with users
+  \item \textbf{Privacy}: Cross-service unlinkability
+  \item \textbf{Simplicity}: Clear responsibility boundaries
+  \item \textbf{Practicality}: No distributed infrastructure burden on users
+\end{itemize}
+
+The protocol enables centralized services to provide decentralized authentication—a pragmatic foundation for digital governance in the real world.

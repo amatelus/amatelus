@@ -5,9 +5,9 @@
 Multiple DIDs enable cross-service unlinkability:
 
 \begin{verbatim}
-∀ DID₁, DID₂, Service₁, Service₂:
-  (Service₁ ≠ Service₂) ∧
-  Link(DID₁, DID₂) requires 2^128 quantum operations
+For all DID_1, DID_2, Service_1, Service_2:
+  (Service_1 != Service_2) AND
+  Link(DID_1, DID_2) requires 2^128 quantum operations
 \end{verbatim}
 
 \section{Zero-Knowledge Property}
@@ -15,7 +15,7 @@ Multiple DIDs enable cross-service unlinkability:
 ZKP reveal attribute ownership without revealing identity:
 
 \begin{itemize}
-  \item \textbf{Public}: Attribute claimed (age ≥ 18)
+  \item \textbf{Public}: Attribute claimed (age $\geq$ 18)
   \item \textbf{Hidden}: Identity proving the attribute
   \item \textbf{Hidden}: Secret key generating the proof
   \item \textbf{Verified}: ZKP authenticity via public key

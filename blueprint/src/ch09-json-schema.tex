@@ -35,29 +35,29 @@ The subset eliminates these features to enable formal verification.
 
 \begin{verbatim}
 inductive SchemaKeyword
-  | type : List String → SchemaKeyword
-  | maxLength : Nat → SchemaKeyword
-  | minLength : Nat → SchemaKeyword
-  | pattern : String → SchemaKeyword
-  | maximum : Float → SchemaKeyword
-  | minimum : Float → SchemaKeyword
-  | multipleOf : Float → SchemaKeyword
-  | maxItems : Nat → SchemaKeyword
-  | minItems : Nat → SchemaKeyword
-  | uniqueItems : Bool → SchemaKeyword
-  | items : Schema → SchemaKeyword
-  | maxProperties : Nat → SchemaKeyword
-  | minProperties : Nat → SchemaKeyword
-  | required : List String → SchemaKeyword
-  | properties : List (String × Schema) → SchemaKeyword
-  | enum : List JSONValue → SchemaKeyword
-  | const : JSONValue → SchemaKeyword
-  | allOf : List Schema → SchemaKeyword
-  | anyOf : List Schema → SchemaKeyword
-  | oneOf : List Schema → SchemaKeyword
-  | not : Schema → SchemaKeyword
-  | title : String → SchemaKeyword
-  | description : String → SchemaKeyword
+  | type : List String -> SchemaKeyword
+  | maxLength : Nat -> SchemaKeyword
+  | minLength : Nat -> SchemaKeyword
+  | pattern : String -> SchemaKeyword
+  | maximum : Float -> SchemaKeyword
+  | minimum : Float -> SchemaKeyword
+  | multipleOf : Float -> SchemaKeyword
+  | maxItems : Nat -> SchemaKeyword
+  | minItems : Nat -> SchemaKeyword
+  | uniqueItems : Bool -> SchemaKeyword
+  | items : Schema -> SchemaKeyword
+  | maxProperties : Nat -> SchemaKeyword
+  | minProperties : Nat -> SchemaKeyword
+  | required : List String -> SchemaKeyword
+  | properties : List (String × Schema) -> SchemaKeyword
+  | enum : List JSONValue -> SchemaKeyword
+  | const : JSONValue -> SchemaKeyword
+  | allOf : List Schema -> SchemaKeyword
+  | anyOf : List Schema -> SchemaKeyword
+  | oneOf : List Schema -> SchemaKeyword
+  | not : Schema -> SchemaKeyword
+  | title : String -> SchemaKeyword
+  | description : String -> SchemaKeyword
 \end{verbatim}
 
 Note: Excluded keywords like \texttt{\$ref}, \texttt{additionalProperties}, \texttt{format} are not in the inductive type.

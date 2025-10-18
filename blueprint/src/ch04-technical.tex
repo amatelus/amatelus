@@ -109,14 +109,14 @@ ZKP proves ownership of both DIDs without revealing either to external parties.
 \subsection{Dual Nonce Binding}
 
 \begin{verbatim}
-ZKP := (π, x, nonce_holder, nonce_verifier)
-where π proves knowledge of w such that
+ZKP := (pi, x, nonce_holder, nonce_verifier)
+where pi proves knowledge of w such that
 R(x, w, nonce_holder, nonce_verifier) = 1
 \end{verbatim}
 
 \subsection{Nonce Generation and Binding}
 
-Both Holder and Verifier generate independent nonces (≥128 bits):
+Both Holder and Verifier generate independent nonces ($\geq$128 bits):
 
 \begin{enumerate}
   \item Verifier generates \texttt{nonce2} (challenge)

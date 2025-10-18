@@ -52,8 +52,8 @@ AMATELUS provides two distinct mechanisms:
 In the AMATELUS protocol, claims are transferred via two paths:
 
 \begin{enumerate}
-  \item \textbf{Issuer → Holder\_A}: Initial claim issuance
-  \item \textbf{Holder\_A → Holder\_B}: Per-claim transfer (subject of this specification)
+  \item \textbf{Issuer $\rightarrow$ Holder\_A}: Initial claim issuance
+  \item \textbf{Holder\_A $\rightarrow$ Holder\_B}: Per-claim transfer (subject of this specification)
 \end{enumerate}
 
 External submissions always use only ZKPs; claims themselves are never revealed externally.
@@ -430,7 +430,7 @@ Per-claim transfer provides complete security through dual signatures:
 \textbf{Security Theorem}:
 \begin{verbatim}
 theorem claim_transfer_preserves_issuer_signature :
-  ∀ (claim : SignedClaim)
+  forall (claim : SignedClaim)
     (originalSubjectDID currentHolderDID : ValidDID)
     (timestamp : Nat),
   let tc := prepareClaimTransfer claim originalSubjectDID
@@ -687,7 +687,7 @@ Recommended configuration:
 Use trusted cloud service as relay:
 
 \begin{verbatim}
-Smartphone → [Encrypted] → Cloud → [Decrypted] → PC
+Smartphone -> [Encrypted] -> Cloud -> [Decrypted] -> PC
 \end{verbatim}
 
 Requirements:
@@ -703,8 +703,8 @@ Requirements:
 Safe claim sharing within family or organization:
 
 \begin{verbatim}
-Parent Wallet ↔ Child Wallet (guardian function)
-Corporate Wallet ↔ Employee Wallet (role proof)
+Parent Wallet <-> Child Wallet (guardian function)
+Corporate Wallet <-> Employee Wallet (role proof)
 \end{verbatim}
 
 Requirements:

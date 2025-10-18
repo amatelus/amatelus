@@ -24,17 +24,17 @@ A trust chain flows from a root authority through delegatees to holders:
 \begin{center}
 \begin{verbatim}
 Root Anchor (Trusted Authority)
-    ↓ Delegation Credential
-    │ (delegated authority → recipient)
-    ↓
+    v Delegation Credential
+    | (delegated authority -> recipient)
+    v
 Delegatee (Authority)
-    ↓ Attribute Credential
-    │ (claim with embedded delegation)
-    ↓
+    v Attribute Credential
+    | (claim with embedded delegation)
+    v
 Holder (Subject)
-    ↓ Re-packaging (optional)
-    │ (Holder re-issues with own signature)
-    ↓
+    v Re-packaging (optional)
+    | (Holder re-issues with own signature)
+    v
 Verifier (Service Provider)
     verifies:
     - ZKP validity
@@ -197,7 +197,7 @@ When proving attributes to a service provider:
   \item Holder creates a VP (internal only) from relevant credentials
   \item Holder generates a ZKP with public inputs including:
     \begin{itemize}
-      \item Required properties only (e.g., ``age $\geq 20'', ``residence in Japan'')
+      \item Required properties only (e.g., \texttt{age $\geq$ 20}, \texttt{residence in Japan})
       \item Holder's DID is \textbf{hidden} in ZKP's secret inputs
       \item \texttt{grantorDIDs} (proof authorities)
     \end{itemize}
@@ -263,18 +263,18 @@ Government delegates ``Resident Certificate'' authority to municipalities:
 \begin{center}
 \begin{verbatim}
 Government (grantorDID)
-  ↓ Delegation Credential
+  v Delegation Credential
     (grants Resident Certificate authority)
     maxDepth = 1
-  ↓
+  v
 Municipality (granteeDID)
-  ↓ Attribute Credential
+  v Attribute Credential
     (issues resident data with embedded delegation)
-  ↓
+  v
 Resident (Holder)
-  ↓ Requests Bank Account
+  v Requests Bank Account
     (verifier: Bank)
-  ↓
+  v
 Bank
   - Verifies ZKP
   - Confirms government DID in trustedAnchors
@@ -287,12 +287,12 @@ Bank
 \begin{center}
 \begin{verbatim}
 Government (grantorDID, maxDepth=3)
-  ↓ Prefecture (maxDepth=2)
-  ↓ Municipality (maxDepth=1)
-  ↓ Resident (Holder, issues self-signed VC)
-  ↓ Applies for Job
-    (submits ZKP: age≥18, no criminal record)
-  ↓
+  v Prefecture (maxDepth=2)
+  v Municipality (maxDepth=1)
+  v Resident (Holder, issues self-signed VC)
+  v Applies for Job
+    (submits ZKP: age >= 18, no criminal record)
+  v
 Employer (Verifier)
   - Verifies ZKP
   - Does NOT learn:

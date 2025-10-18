@@ -1,0 +1,787 @@
+% AMATELUS Secret Key Lifecycle Management Specification
+% Based on version 1.0 dated 2025-10-14
+% Covers emergency scenarios: theft, loss, rotation, death, guardianship
+
+\chapter{Secret Key Lifecycle Management}
+
+\section{Overview}
+
+This chapter specifies the management of secret keys in AMATELUS, particularly emergency procedures for:
+device theft, loss, damage, device replacement, account rotation, death, and guardianship.
+
+\subsection{Key Principles}
+
+\begin{enumerate}
+  \item \textbf{Determinism Principle}: Only operations with secret key signatures are cryptographically deterministic
+  \item \textbf{Contactability Limit}: Only reachable Issuers can respond; unreachable Issuers cannot help
+  \item \textbf{Mathematical Safety Limit}: Safe recovery of DIDs without identity credential linkage is impossible
+\end{enumerate}
+
+\subsection{Scenario Classification}
+
+Secret key issues fall into five categories:
+
+\begin{enumerate}
+  \item \textbf{Leakage}: Secret key in hand, possibly compromised to third party
+  \item \textbf{Loss with Abuse Concern}: Suspected theft or compromise (backup available)
+  \item \textbf{Loss without Abuse Concern}: Device damage/loss without compromise risk
+  \item \textbf{Update}: Planned key rotation (both old and new keys available)
+  \item \textbf{Death}: Permanent loss of physical access
+  \item \textbf{Guardianship}: Capacity-restricted individual under legal guardianship
+\end{enumerate}
+
+\section{Secret Key Leakage Response Flow}
+
+\subsection{Preconditions}
+
+\begin{itemize}
+  \item \textbf{Old secret key available}: Holder still possesses possibly-compromised key
+  \item \textbf{Signature operations possible}: Can cryptographically sign revocation requests
+  \item \textbf{Third party compromise suspected}: Key copy may exist with attackers
+\end{itemize}
+
+\subsection{Response Procedure}
+
+\subsubsection{Step 1: Emergency Response Initiation}
+
+\begin{enumerate}
+  \item Holder generates new secret key pair $(newDID, newSK)$
+  \item Holder creates revocation signature using old key:
+    \begin{itemize}
+      \item $signatureByOldKey = \text{Sign}(oldSK, H(oldDID \parallel newDID \parallel timestamp))$
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Step 2: Revocation Request to All Issuers}
+
+Holder sends to \textbf{all Issuers} that issued VCs:
+
+\begin{lstlisting}[language=json]
+{
+  "requestType": "revocationDueToLeakage",
+  "oldDID": "did:amatelus:old123...",
+  "newDID": "did:amatelus:new456...",
+  "timestamp": "2025-10-14T10:30:00Z",
+  "revocationReason": "Secret key leakage suspected",
+  "signatureByOldKey": "signature(oldSK, hash(oldDID || newDID || timestamp))"
+}
+\end{lstlisting}
+
+Cryptographic guarantee:
+\begin{itemize}
+  \item \texttt{signatureByOldKey} cryptographically proves rightful old key owner
+  \item Third party cannot forge signature (Dilithium2 security)
+\end{itemize}
+
+\subsubsection{Step 3: Issuer Processing}
+
+Each Issuer executes:
+
+\begin{enumerate}
+  \item Verify \texttt{signatureByOldKey} (reject if verification fails)
+  \item Add all VCs issued for \texttt{oldDID} to revocation list
+  \item Update and publish new Merkle Root
+  \item Permanently reject new VC requests from \texttt{oldDID}
+  \item (Optional) Re-issue VC for \texttt{newDID} following policy
+\end{enumerate}
+
+\subsubsection{Step 4: Revocation Completion Verification}
+
+Holder confirms:
+
+\begin{enumerate}
+  \item Check each Issuer's MerkleRevocationList (VCs revoked)
+  \item List unreachable Issuers (unrevoked VCs remain)
+\end{enumerate}
+
+\subsubsection{Timeline}
+
+\begin{verbatim}
+T=0:      Leakage detection
+T=+5min:  New key generation, revocation signature
+T=+30min: Revocation requests sent to all Issuers
+T=+1h:    Issuer revocation processing complete (target SLA)
+T=+24h:   Revocation confirmation, re-issuance begins
+\end{verbatim}
+
+\subsubsection{Security Characteristics}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Property} & \textbf{Guarantee Level} & \textbf{Basis} \\
+\hline
+Old VC revocation & \textbf{Deterministic} & Cryptographic signature \\
+Old DID rejection & \textbf{Deterministic} & Issuer blacklist \\
+Unreachable Issuers & \textbf{None} & No contact possible \\
+Third-party misuse & \textbf{Time-dependent} & Issuer revocation speed \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Secret Key Loss: Abuse Concern}
+
+\subsection{Scenario}
+
+\begin{itemize}
+  \item Device theft, malware infection, or compromise suspected
+  \item Old secret key unavailable, but backup recovery possible
+\end{itemize}
+
+\subsection{Response}
+
+If backup recovery possible: Execute Section 3 (leakage response)
+
+If no backup: Proceed to Section 5 (trust inheritance flow)
+
+\section{Secret Key Loss: Trust Inheritance Flow}
+
+\subsection{Preconditions}
+
+\begin{itemize}
+  \item Old secret key unavailable (device lost/damaged)
+  \item No abuse concern (device not stolen)
+  \item New secret key pair generated
+\end{itemize}
+
+\subsection{Case A: Identity Credential Available}
+
+\subsubsection{Trust Inheritance Principle}
+
+\begin{verbatim}
+Old DID (oldDID)
+  └─ Identity VC (e.g., driver's license VC)
+      └─ Issuer = Police/Municipality
+      └─ Linked to real-world identity document
+
+↓ Trust Inheritance
+
+New DID (newDID)
+  └─ DID Migration VC (DIDMigrationVC)
+      └─ Issuer = Police/Municipality
+      └─ Proves same-person relationship
+\end{verbatim}
+
+\subsubsection{Response Procedure}
+
+\textbf{Step 1: Real-World Identity Verification at Municipality}
+
+Holder presents:
+\begin{enumerate}
+  \item Physical identity document (driver's license, national ID card, etc.)
+  \item New DID (newDID)
+  \item Old DID information if available
+\end{enumerate}
+
+\textbf{Step 2: Issuer Record Verification}
+
+Issuer checks:
+\begin{enumerate}
+  \item Physical identity document authenticity
+  \item Past VC issuance records
+  \item Link between document and oldDID
+\end{enumerate}
+
+\textbf{Step 3: DID Migration VC Issuance}
+
+\begin{lstlisting}[language=json]
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential", "DIDMigrationCredential"],
+  "issuer": "did:amatelus:police-station-tokyo",
+  "issuanceDate": "2025-10-14T11:00:00Z",
+  "credentialSubject": {
+    "id": "did:amatelus:new456...",
+    "oldDID": "did:amatelus:old123...",
+    "migrationType": "trustInheritance",
+    "migrationReason": "Device damage causing key loss",
+    "verificationMethod": "Physical identity document verification",
+    "identityDocument": {
+      "type": "DriversLicense",
+      "documentNumber": "123456789012",
+      "issuerName": "Tokyo Public Safety Commission",
+      "verifiedAt": "2025-10-14T10:30:00Z"
+    }
+  },
+  "proof": {
+    "type": "Dilithium2Signature2025",
+    "verificationMethod": "did:amatelus:police-station-tokyo#key-1"
+  }
+}
+\end{lstlisting}
+
+\textbf{Step 4: Re-issuance from Other Issuers}
+
+Holder presents to other Issuers:
+\begin{enumerate}
+  \item DID Migration VC
+  \item New ZKP generated with newDID
+\end{enumerate}
+
+Issuer judgment: Accept re-issuance following policy
+
+\subsubsection{Security Characteristics}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Property} & \textbf{Level} \\
+\hline
+Identity proof & High (physical document verification) \\
+DID migration legitimacy & High (trusted Issuer proof) \\
+Other Issuers acceptance & Policy-dependent \\
+Old VC revocation & Impossible (no old key) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Case B: No Identity Credential}
+
+\subsubsection{Problem}
+
+\begin{itemize}
+  \item No cryptographic signature capability (old key lost)
+  \item No real-world identity link in system
+  \item Issuer cannot verify ``who'' was the oldDID owner
+\end{itemize}
+
+\textbf{Mathematical Safety Limit Theorem}:
+
+\begin{quote}
+\textit{Safe recovery of DIDs without identity credential linkage is information-theoretically impossible.}
+\end{quote}
+
+\subsubsection{Issuer Policy Examples}
+
+Each Issuer must develop independent policy:
+
+\textbf{University Transcript VC}:
+\begin{itemize}
+  \item Present student ID at window
+  \item Photo identification
+  \item Cross-reference past issued transcripts
+  \item Re-issue for new DID
+\end{itemize}
+
+\textbf{Online Service Member VC}:
+\begin{itemize}
+  \item Confirmation code to registered email
+  \item Security questions
+  \item Cross-reference usage history
+  \item Re-issue for new DID
+\end{itemize}
+
+\textbf{Anonymous Service VC}:
+\begin{itemize}
+  \item No identity verification possible
+  \item Re-issuance impossible
+  \item Re-register as new user
+\end{itemize}
+
+\subsubsection{Practical Conclusion}
+
+\begin{quote}
+DIDs without identity-credential linkage are effectively unrecoverable if lost.
+
+\textbf{Preventive strategies}:
+\begin{enumerate}
+  \item Always obtain identity credential first
+  \item Maintain secret key backups in multiple locations
+  \item Use multi-device support
+  \item Perform periodic key updates
+\end{enumerate}
+\end{quote}
+
+\section{Planned Secret Key Update Flow}
+
+\subsection{Preconditions}
+
+\begin{itemize}
+  \item Both old and new secret keys available
+  \item Both key operations possible
+  \item Planned update (not emergency)
+\end{itemize}
+
+\subsection{Use Cases}
+
+\begin{enumerate}
+  \item Device replacement (new smartphone)
+  \item Multi-device support (PC and smartphone)
+  \item Periodic key rotation (security policy)
+  \item Backup device preparation
+\end{enumerate}
+
+\subsection{Procedure}
+
+\subsubsection{Step 1: Dual-Key Relation Proof}
+
+\begin{enumerate}
+  \item Generate new secret key pair $(newDID, newSK)$
+  \item Create dual-signature relation proof:
+    \begin{itemize}
+      \item $sig_{old} = \text{Sign}(oldSK, H(oldDID \parallel newDID \parallel timestamp))$
+      \item $sig_{new} = \text{Sign}(newSK, H(newDID \parallel oldDID \parallel timestamp))$
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Step 2: DID Update Notification}
+
+\begin{lstlisting}[language=json]
+{
+  "requestType": "didUpdate",
+  "oldDID": "did:amatelus:old123...",
+  "newDID": "did:amatelus:new456...",
+  "timestamp": "2025-10-14T10:30:00Z",
+  "updateReason": "Device replacement",
+  "transitionPeriod": "30days",
+  "signatureByOldKey": "...",
+  "signatureByNewKey": "...",
+  "requestedAction": "issueNewVCWithNewDID"
+}
+\end{lstlisting}
+
+Cryptographic guarantee:
+\begin{itemize}
+  \item Both signatures prove \texttt{oldDID} and \texttt{newDID} owner is same person
+\end{itemize}
+
+\subsubsection{Step 3: Issuer Processing (Flexible Options)}
+
+\textbf{Option A}: Issue new VC with new DID
+\begin{itemize}
+  \item New VC with \texttt{newDID} as subject
+  \item Keep old VC valid
+\end{itemize}
+
+\textbf{Option B}: Extend old VC validity
+\begin{itemize}
+  \item Set transition period
+  \item Next update issues new VC
+\end{itemize}
+
+\textbf{Option C}: Issue DID Update Credential
+\begin{itemize}
+  \item Prove \texttt{oldDID} to \texttt{newDID} relation
+  \item Allow other Verifiers to verify link
+\end{itemize}
+
+\subsubsection{Step 4: Transition Period Management}
+
+\begin{verbatim}
+Transition period (e.g., 30 days):
+- Both old and new DIDs valid
+- Holder can use either
+
+After transition:
+- Old DID VC revoked (optional)
+- New DID primary
+\end{verbatim}
+
+\subsubsection{Security Characteristics}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Property} & \textbf{Level} \\
+\hline
+Old-new DID relation & Deterministic (dual signature) \\
+New VC issuance & Deterministic (Issuer signature) \\
+Old VC continuation & Issuer policy-dependent \\
+Multi-device support & Possible (device-specific DIDs) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Multi-Device Scenario}
+
+\textbf{Recommendation}: Each device gets distinct DID
+
+\begin{verbatim}
+Device A (Smartphone):
+  DID: did:amatelus:user123-mobile
+  SK: SK_mobile
+
+Device B (PC):
+  DID: did:amatelus:user123-pc
+  SK: SK_pc
+
+Approach:
+1. Assign unique DID per device
+2. Use Section 5 procedure for each device
+3. Request VCs from each Issuer for both DIDs
+4. Identify with Issuer: "Same person, different devices"
+5. Dual-signature proves same-person relationship
+\end{verbatim}
+
+\section{Death of Holder}
+
+\subsection{Key Characteristics}
+
+\begin{itemize}
+  \item Secret key permanently inaccessible
+  \item Misuse risk essentially zero (key cannot be used)
+  \item Procedure depends on family status
+  \item VC revocation incomplete but damages minimal
+\end{itemize}
+
+\subsection{Case A: No Family}
+
+Municipal automatic processing:
+
+\begin{enumerate}
+  \item Death registration at municipality
+  \item Link with VC issuance records via identity document
+  \item Add holder's DIDs to municipality MerkleRevocationList
+  \item (Optional) Issue death certificate VC
+\end{enumerate}
+
+\subsubsection{Issuer Processing Limitations}
+
+\begin{itemize}
+  \item Municipality Issuers: Can revoke (access to death records)
+  \item Private Issuers: Cannot revoke (no access to death records)
+\end{itemize}
+
+\textbf{Security Impact}:
+\begin{itemize}
+  \item Private Issuer VCs remain valid
+  \item But key is permanently unusable
+  \item Misuse risk effectively zero
+\end{itemize}
+
+\subsection{Case B: Family Present}
+
+Family-assisted processing:
+
+\begin{enumerate}
+  \item Municipality issues legal representative VC (LegalRepresentativeCredential)
+  \item Family presents to each Issuer with representative VC
+  \item Issuer processes based on policy
+  \item Limited effectiveness (often not executed)
+\end{enumerate}
+
+\textbf{Security Impact}:
+\begin{itemize}
+  \item Some Issuers may revoke
+  \item Unrevoked VCs remain
+  \item Misuse essentially impossible (no key access)
+  \item Damages minimal compared to leakage scenarios
+\end{itemize}
+
+\section{Guardianship (Capacity Restriction)}
+
+\subsection{Scenario}
+
+Holder becomes capacity-restricted (legal guardianship):
+\begin{itemize}
+  \item Individual is alive and retains device access
+  \item Judgment capacity is legally restricted
+  \item Guardian has legal authority
+\end{itemize}
+
+\textbf{Difference from death}:
+
+\begin{verbatim}
+Death:
+- Secret key access: Impossible → Misuse risk zero
+
+Guardianship:
+- Secret key access: Possible (person alive) → Misuse risk exists
+- Problem: Individual may sign inappropriate contracts
+- Solution: Guardian can revoke/cancel contracts
+\end{verbatim}
+
+\subsection{Guardianship Initiation Flow}
+
+\subsubsection{Family Court Guardianship Order}
+
+\begin{enumerate}
+  \item Application to family court (family member, prosecutor, etc.)
+  \item Family court review of capacity
+  \item Capacity evaluation
+  \item Guardianship order and guardian appointment
+\end{enumerate}
+
+\subsubsection{Municipality Guardian VC Issuance}
+
+\begin{lstlisting}[language=json]
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential", "GuardianCredential"],
+  "issuer": "did:amatelus:city-hall-tokyo",
+  "issuanceDate": "2025-10-14T14:00:00Z",
+  "credentialSubject": {
+    "id": "did:amatelus:guardian-789...",
+    "guardianOf": "did:amatelus:ward-123...",
+    "guardianType": "成年後見人",
+    "authority": [
+      "VC revocation request",
+      "DID blacklist registration",
+      "Contract cancellation",
+      "Property management"
+    ],
+    "wardInfo": {
+      "courtDecisionDate": "2025-10-01",
+      "courtCaseNumber": "Reiwa 7 (Fam) No. 12345",
+      "registrationNumber": "Reiwa 7 Guardianship No. 67890",
+      "guardianshipStartDate": "2025-10-01"
+    },
+    "verificationMethod": "Court decision and registration certificate",
+    "expirationDate": "2026-10-14T23:59:59Z"
+  }
+}
+\end{lstlisting}
+
+Key fields:
+\begin{itemize}
+  \item \texttt{guardianOf}: Ward's DID
+  \item \texttt{authority}: Authority types
+  \item \texttt{courtCaseNumber}: Legal case reference
+  \item \texttt{registrationNumber}: Guardianship registry number
+\end{itemize}
+
+\subsection{Guardian VC Notification to Issuers}
+
+Guardian notifies all Issuers:
+
+\begin{enumerate}
+  \item Present Guardian VC
+  \item Request VC revocation
+  \item Request DID blacklist
+\end{enumerate}
+
+Issuer processing options:
+
+\textbf{Option A}: Complete revocation
+\begin{itemize}
+  \item Add to MerkleRevocationList
+  \item Add DID to blacklist
+\end{itemize}
+
+\textbf{Option B}: Conditional validity
+\begin{itemize}
+  \item Mark as ``under guardianship''
+  \item Verifier requires guardian approval
+  \item Small transactions allowed
+\end{itemize}
+
+\textbf{Option C}: Defer to Verifier
+\begin{itemize}
+  \item No Issuer action
+  \item Verifier checks guardianship
+\end{itemize}
+
+\subsection{Verifier Guardianship Confirmation Flow}
+
+Recommended at contract time:
+
+\begin{enumerate}
+  \item Receive ZKP from Holder
+  \item Check MerkleRevocationList (standard)
+  \item \textbf{New}: Query guardianship status
+    \begin{itemize}
+      \item Call municipal guardianship confirmation API
+      \item Check if DID is under guardianship
+    \end{itemize}
+\end{enumerate}
+
+Guardianship confirmation API:
+
+\begin{verbatim}
+GET /api/v1/guardianship/check/{did}
+
+Response:
+{
+  "did": "did:amatelus:ward-123...",
+  "underGuardianship": true,
+  "guardian": {
+    "did": "did:amatelus:guardian-789...",
+    "type": "Legal Guardian",
+    "guardianVC": {
+      "issuer": "did:amatelus:city-hall-tokyo",
+      "expiresAt": "2026-10-14T23:59:59Z"
+    }
+  },
+  "restrictions": [
+    "No new VC issuance",
+    "Large contracts require guardian approval",
+    "Small transactions (under 10,000 yen) permitted"
+  ]
+}
+\end{verbatim}
+
+\subsection{Contract Cancellation by Guardian}
+
+If ward makes inappropriate contract:
+
+\subsubsection{Legal Basis}
+
+Civil Code Article 9: ``A person under guardianship may cancel their legal acts.''
+
+\subsubsection{Cancellation Procedure}
+
+\begin{enumerate}
+  \item Guardian identifies inappropriate contract
+  \item Presents Guardian VC to Verifier
+  \item Requests contract cancellation and refund
+  \item Verifier verifies Guardian VC and executes cancellation
+\end{enumerate}
+
+Verifier verification:
+\begin{enumerate}
+  \item Verify Guardian VC signature
+  \item Check \texttt{authority} includes ``contract cancellation''
+  \item Verify contract was with ward's DID
+  \item Execute cancellation and refund
+\end{enumerate}
+
+\section{Security Considerations}
+
+\subsection{Key Leakage Attacks}
+
+\textbf{Attack}: Attacker uses leaked key to generate ZKP
+
+\textbf{Defense}:
+\begin{itemize}
+  \item Holder immediately revokes old DIDs
+  \item Issuer revokes old VCs
+  \item Verifier checks current MerkleRevocationList
+\end{itemize}
+
+\textbf{Vulnerability window}: Time between leak and revocation completion
+
+\subsection{Fraudulent DID Migration}
+
+\textbf{Attack}: Attacker claims old DID as their own for re-issuance
+
+\textbf{Defense}:
+\begin{itemize}
+  \item With old key signature: Signature verification prevents fraud
+  \item Without old key: Identity credential physical verification prevents fraud
+  \item Without identity credential: No defense (information-theoretic impossibility)
+\end{itemize}
+
+\subsection{Guardian VC Forgery}
+
+\textbf{Attack}: Attacker forges Guardian VC
+
+\textbf{Defense}:
+\begin{itemize}
+  \item Guardian VC issued by trusted municipality (cryptographic signature)
+  \item Signature forgery requires breaking Dilithium2 (128-bit security)
+  \item Recommended: Verify guardianship in legal registry API
+\end{itemize}
+
+\section{Implementation Recommendations}
+
+\subsection{Holder Responsibilities}
+
+\begin{itemize}
+  \item Store secret key in device secure storage (Keychain, TEE)
+  \item Maintain encrypted backups in multiple locations
+  \item Obtain identity credential before other VCs
+  \item Update DIDs periodically (annually recommended)
+  \item Keep Issuer contact list
+  \item Test revocation procedures annually
+\end{itemize}
+
+\subsection{Issuer Responsibilities}
+
+\begin{itemize}
+  \item Define and publish revocation SLA (e.g., 1 hour for high priority)
+  \item Implement automatic signature verification
+  \item Maintain up-to-date MerkleRevocationLists
+  \item Provide 24/7/365 revocation acceptance (high SLA)
+  \item Document DID migration trust policies
+  \item Keep audit logs of revocation requests and completions
+\end{itemize}
+
+\subsection{Verifier Responsibilities}
+
+\begin{itemize}
+  \item Always use current MerkleRevocationList
+  \item Implement MAX\_VERSION\_LAG (recommended: 5)
+  \item For guardianship scenarios: Query guardianship API
+  \item Define transaction thresholds for guardian approval
+  \item Process contract cancellation requests from guardians
+  \item Log all guardian-related transactions
+\end{itemize}
+
+\section{Formal Theorems}
+
+\subsection{Theorem: Leakage Recovery Determinism}
+
+With old key signature capability, revocation is cryptographically deterministic.
+
+\begin{lstlisting}[language=Lean]
+theorem leakage_revocation_possible
+    (holder : Holder)
+    (oldSK : SecretKey)
+    (oldDID : DID)
+    (newDID : DID)
+    (timestamp : Nat)
+    (h_possession : holder.hasKey oldSK)
+    (h_sign : CanSign oldSK (hash (oldDID ++ newDID ++ timestamp))) :
+  ∃ (revocationProof : RevocationProof),
+    ∀ (issuer : Issuer),
+      issuer.hasVC oldDID →
+        Verifiable revocationProof ∧
+        issuer.canRevoke oldDID revocationProof
+\end{lstlisting}
+
+\subsection{Theorem: Recovery Impossibility Without Identity Credential}
+
+\begin{lstlisting}[language=Lean]
+theorem recovery_impossible_without_identity_credential
+    (holder : Holder)
+    (oldDID : DID)
+    (newDID : DID)
+    (h_no_key : ¬holder.hasKey oldSK_old)
+    (h_no_identity_vc : ¬∃ (vc : VC),
+      vc.issuer.isIdentityAuthority ∧
+      vc.subject = oldDID) :
+  ¬∃ (issuer : Issuer),
+    issuer.canVerifyRecovery oldDID newDID
+\end{lstlisting}
+
+Result: Safe recovery is information-theoretically impossible.
+
+\section{Policy Recommendation Summary}
+
+\subsection{Revocation SLA}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Priority} & \textbf{Target} & \textbf{Maximum} \\
+\hline
+High (leak/theft) & 1 hour & 24 hours \\
+Medium (loss) & 24 hours & 7 days \\
+Low (planned update) & 7 days & 30 days \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Identity Verification Standards}
+
+\begin{itemize}
+  \item Leakage/Update: Signature verification (automatic)
+  \item Loss with ID VC: Physical identity document + record linkage
+  \item Loss without ID VC: Issuer-specific policy or impossible
+  \item Death: Municipal record linkage
+  \item Guardianship: Court order + family court registration verification
+\end{itemize}
+
+\subsection{Key Design Principles}
+
+\begin{enumerate}
+  \item \textbf{Determinism when possible}: Use cryptography to avoid judgment
+  \item \textbf{Identity-first}: Obtain identity credential before other VCs
+  \item \textbf{Backup preparation}: Require users to backup keys and test recovery
+  \item \textbf{Transparency}: Publish all policies and procedures publicly
+  \item \textbf{Practical limits}: Accept that some scenarios are unrecoverable
+\end{enumerate}

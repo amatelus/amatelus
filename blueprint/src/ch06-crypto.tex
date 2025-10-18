@@ -12,7 +12,7 @@
     \item \textbf{Independent nonce generation}: Cryptographically random nonces with sufficient entropy
   \end{itemize}
   \uses{def:amatelus}
-  \lean{AMATELUS.CryptoAssumptions}
+  \lean{AMATELUS.Cryptographic}
   \leanok
 \end{definition}
 
@@ -27,7 +27,7 @@
   If an attacker uses a different secret key to forge a ZKP, the signature verification will fail
   because DIDComm makes the sender's public key known to the recipient.
   \uses{def:crypto-assumptions}
-  \lean{AMATELUS.ImpersonationResistance}
+  \lean{AMATELUS.Cryptographic}
   \leanok
 \end{theorem}
 
@@ -40,7 +40,7 @@
   Each ZKP corresponds to a unique nonce pair. Even if a legitimate user's ZKP is
   reused in a new session, the nonces will differ, preventing the attack.
   \uses{def:crypto-assumptions}
-  \lean{AMATELUS.ReplayResistance}
+  \lean{AMATELUS.Cryptographic}
   \leanok
 \end{theorem}
 
@@ -53,7 +53,7 @@
   While AMATELUS provides cryptographic identity verification, ECDH-1PU authenticated
   encryption and TLS/HTTPS are the responsibility of service providers.
   \uses{def:crypto-assumptions}
-  \lean{AMATELUS.MITMDefense}
+  \lean{AMATELUS.Cryptographic}
 \end{proposition}
 
 \subsection{Sybil Attack (Multiple DIDs)}
@@ -65,6 +65,6 @@
   While a single entity can control multiple DIDs, Anonymous Hash Identifiers (AHI)
   restrict per-audit-domain abuse through cryptographic binding to national identity systems.
   \uses{def:amatelus}
-  \lean{AMATELUS.SybilResilience}
+  \lean{AMATELUS.Protocol}
 \end{proposition}
 

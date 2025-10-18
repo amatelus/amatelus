@@ -10,7 +10,7 @@
     \item Verifiable Credentials (VCs)
     \item Zero-Knowledge Proofs (ZKPs)
   \end{itemize}
-  \lean{AMATELUS.Core}
+  \lean{AMATELUS.Protocol}
   \leanok
 \end{definition}
 
@@ -26,7 +26,7 @@
     \item Cryptographic trust guarantees
   \end{itemize}
   \uses{def:amatelus}
-  \lean{AMATELUS.Capabilities}
+  \lean{AMATELUS.Protocol}
   \leanok
 \end{proposition}
 
@@ -43,7 +43,7 @@
     \item Message delivery guarantees
   \end{itemize}
   \uses{def:amatelus}
-  \lean{AMATELUS.NonScope}
+  \lean{AMATELUS.Protocol}
 \end{proposition}
 
 \subsection{Design Philosophy}
@@ -52,7 +52,7 @@
   \label{prop:design-philosophy}
   AMATELUS is a \emph{cryptographic authentication mechanism}, not a communication infrastructure.
   \uses{def:amatelus, prop:amatelus-capabilities, prop:amatelus-non-scope}
-  \lean{AMATELUS.Philosophy}
+  \lean{AMATELUS.Protocol}
   \leanok
 \end{proposition}
 
@@ -62,7 +62,7 @@
   service provision (service provider responsibility) eliminates distributed
   infrastructure complexity while preserving cryptographic security properties.
   \uses{def:amatelus, prop:design-philosophy}
-  \lean{AMATELUS.BoundaryClarity}
+  \lean{AMATELUS.Protocol}
   \leanok
 \end{theorem}
 

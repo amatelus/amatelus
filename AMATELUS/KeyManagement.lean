@@ -992,7 +992,8 @@ theorem deterministic_revocation_requires_key_access :
     req.isDeterministic = true := by
   intro state h_access
   -- 秘密鍵が利用可能な場合、署名付き失効要求を作成可能
-  let dummyDID : ValidDID := { w3cDID := { value := "did:amatelus:dummy" }, hash := ⟨[]⟩ }
+  let dummyDID : ValidDID :=
+    { w3cDID := { value := "did:amatelus:dummy" }, hash := ⟨[]⟩, purpose := DIDPurpose.Identity }
   let validReq : ValidRevocationRequest := {
     oldDID := dummyDID
     newDID := none

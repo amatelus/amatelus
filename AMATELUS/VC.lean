@@ -293,6 +293,51 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
 
 -- ## Helper Functions for Context and VCType conversion
 
+/-- 名寄せ回避情報 (De-linkage Information)
+
+    ZKPで証明される2つのDIDの関連付けに関する情報。
+
+    **目的:**
+    Verifierに以下を証明する際、複数の身分証明用DIDを関連付けることを防ぐ
+    1. 身分証明用DID（Identity DID）の秘密鍵所有権
+    2. 通信用DID（Communication DID）の秘密鍵所有権
+
+    **2つのDID名寄せ回避の原理:**
+    - `identityDID`: 身分証明用DID（住民票、運転免許証など）
+    - `communicationDID`: 通信用DID（このサービスとの通信用）
+
+    ZKPは両方の秘密鍵所有権を証明するが、ZKP不学性により：
+    - ZKP自体からはidentityDIDとcommunicationDIDの対応関係を抽出困難
+    - 異なるサービスが異なるcommDIDを見ても、背後の共通identityDIDを推測困難
+
+    **複数サービス間での名寄せ回避:**
+    - サービスA観測: commDID_A（背後のidentityDID不明）
+    - サービスB観測: commDID_B（背後のidentityDID不明）
+    - commDID_AとcommDID_Bが同じentityからのものであることを推測困難
+      → 各通信で異なる通信用DIDを生成 + ZKP不学性
+
+    **同一サービス内のプライバシー:**
+    - 同じサービスに対しては、同じcommunicationDIDで複数回ログイン
+    - サービスはこのcommDIDの複数のアクセスを観測可能
+    - しかし、背後のidentityDIDが何であるかは不明（de-linkage infoでも推測不可）
+
+    **クレーム提示の性質:**
+    - VCで提示するクレーム（年齢>=20など）について
+    - ZKPでそのクレームの所有者がidentityDIDの所有者であることを証明
+    - 同時にcommunicationDIDも所有していることを証明
+    - 複数のクレームが同じidentityDIDに紐付いている場合、
+      Verifierはそれらが同一サービス内でのアクセスと判断可能
+      **しかし** 異なるサービス間での関連付けはZKP不学性により困難
+-/
+structure DeLinkageInfo where
+  -- 身分証明用DID（Identity DID）
+  -- 提示するクレーム（年齢>=20など）に紐付いている
+  identityDID : ValidDID
+  -- 通信用DID（Communication DID）
+  -- このサービスとの通信用
+  communicationDID : ValidDID
+  deriving Repr, DecidableEq
+
 /-- 正規の検証可能資格情報 (Valid Verifiable Credential)
 
     署名検証が成功するVC。
@@ -319,6 +364,15 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
     w3cCredential.credentialSubject.claimsには委任チェーン（DelegationChain）が含まれる。
     詳細はTrustChainTypes.leanのDelegationChain型を参照。
 
+    **名寄せ回避の設計:**
+    ZKPで証明する際、以下の2つのDIDが関連付けられる：
+    1. 身分証明用DID（Identity DID）: VCで提示するクレームに紐付いている
+    2. 通信用DID（Communication DID）: このサービスとの通信用DID
+
+    `deLinkageInfo`フィールドにより、ZKP検証時にこの情報を参照でき、
+    複数のクレームが関連していることを検証できつつ、
+    サービス間での名寄せは困難になる。
+
     **設計思想:**
     - VCの発行はIssuerの責任（署名は暗号ライブラリで生成）
     - プロトコルレベルでは「正規に発行されたVC」として抽象化
@@ -335,6 +389,7 @@ def didToCredentialSubject (did : UnknownDID) : W3C.CredentialSubject :=
     - subjectDID: 主体DID（型レベルで正規のDIDを保証）
     - signature: デジタル署名（型レベルで保証）
     - claims: 属性固有のクレーム（任意の構造化クレーム）
+    - deLinkageInfo: 名寄せ回避情報（オプショナル）
 
     **権限証明の埋め込み方法:**
     委譲された権限で発行するVCでは、W3C.Credential.credentialSubject.claimsに以下を含める：
@@ -354,6 +409,9 @@ structure ValidVC where
   signature : Signature
   -- 属性固有のクレーム
   claims : Claims
+  -- 名寄せ回避情報（オプショナル）
+  -- ZKPで証明する場合、このフィールドでidentity DIDとcommunication DIDの関連を記録
+  deLinkageInfo : Option DeLinkageInfo
   deriving Repr
 
 namespace ValidVC

@@ -269,6 +269,8 @@ noncomputable def issueCredential
     signature := signature
     -- 属性クレーム
     claims := claims
+    -- 名寄せ回避情報（オプショナル、VC発行時は通常None）
+    deLinkageInfo := none
   }
   UnknownVC.valid validVC
 

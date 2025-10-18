@@ -7,13 +7,120 @@
 2. **トラストアンカー検証**: Holderが全てのクレーム署名者を検証
 3. **人間中心の判断**: 最終判断はHolderが行う
 
+## DIDComm通信の統一
+
+AMATELUS プロトコル v2では、すべての通信をDIDCommに統一しました。
+
+### 通信用DID（Communication DID）のライフサイクル
+
+**1. 各通信開始時**
+- Holder: 新しい通信用DIDを生成
+  - 毎回異なるDIDが生成される（秘密鍵ペアが異なる）
+  - 身分証明用DID（Identity DID）との関連付けを防ぐ（名寄せ回避）
+
+**2. ZKP生成時**
+- Holder: 2つのDID所有権をZKPで証明
+  1. 身分証明用DID（Identity DID）の秘密鍵所有権
+  2. 通信用DID（Communication DID）の秘密鍵所有権
+- ZKPのde-linkage information に両DIDの情報を含める
+- ZKP不学性により、異なるクレームを同じidentity DIDに関連付けることは困難
+
+**3. VC発行時**
+- Issuer: HC（通信用DID）をsubjectとするVCを発行
+- Holder: 通信用DIDをWalletに保存
+  - 保存情報: (通信用DID, 通信相手DID, 発行されたVC)
+  - この紐づけにより、同じサービスでのログイン認証に再利用可能
+
+**4. VC発行なし（検証のみ）で通信終了した場合**
+- Holder: 通信用DIDを破棄
+  - Walletに保存されないため、メモリから削除
+  - サービスとの関連が跡形もなく消える
+
+### シナリオ1: 検証のみ（VC発行なし）
+
+```
+通信用DID生成 → ZKP生成・送信 → 検証成功 → 通信終了 → 破棄
+```
+
+例: 年齢確認サービス
+- Holder: 通信用DIDを生成
+- ZKPで「年齢>=20」を証明（Identity DIDとCommunication DIDの所有権含む）
+- Verifier: ZKP検証成功、年齢確認完了
+- Holder: 通信終了と同時に通信用DIDを破棄
+- 後に同じサービスにアクセス: 新しい通信用DIDで通信（前の通信用DIDとの関連なし）
+
+### シナリオ2: 会員登録（VC発行→ログイン時に再利用）
+
+```
+通信用DID生成 → ZKP生成・送信 → 検証成功 → VC発行 → 保存
+（次回ログイン時）
+保存された通信用DID + VC を使用 → メッセージ認証 → ログイン完了
+```
+
+例: SNS会員登録
+
+**初回登録時:**
+1. Holder: 新しい通信用DIDを生成
+2. ZKPで「年齢>=18, 本人確認OK」を証明
+3. Issuer: 検証成功、会員証VC（subject=通信用DID）を発行
+4. Holder: Walletに保存
+   - 保存: (通信用DID, Issuer DID, 会員証VC)
+
+**次回ログイン時:**
+1. Holder: Walletから通信用DIDと会員証VCを取得
+2. DIDCommで通信相手（SNS）と認証
+   - メッセージ認証にはEC-DH 1PUを使用
+   - 通信用DIDの秘密鍵で署名
+3. Verifier: メッセージ署名検証成功 → ログイン完了
+
+**複数サービスでの名寄せ回避:**
+- サービスA用通信DID: commDID_A (Walletに保存)
+- サービスB用通信DID: commDID_B (Walletに保存)
+- 異なるcommDID_A, commDID_Bから、共通のIdentity DIDを推測することは困難
+  → ZKP不学性による保護
+  → 複数のサービスが「commDID_A」「commDID_B」を観測しても、
+    背後に同じIdentity DIDがあることを推測できない
+
+**サービス内でのプライバシー:**
+- 同じサービスに対しては、保存された同じ通信用DIDで認証
+- サービスは複数のアクセスが同じcommDIDから来ていると認識
+- しかし、そのcommDIDが背後のIdentity DIDと何であるかは不明
+  （ZKPのde-linkage infoからは推測不可）
+
+## 従来の課題を解決する設計
+
+**従来:**
+- Holderが身分証明用DIDを複数のサービスに提示
+- 異なるクレームから同じDIDを抽出可能
+→ サービス間での名寄せが容易（SNS、銀行、病院から同じDIDが観測される）
+
+**新設計:**
+- 通信用DIDを毎回生成（ZKPでIdentity DIDとの関連を秘密裏に証明）
+- ZKP不学性により、複数のサービスからの通信用DID観測から
+  背後の共通Identity DIDを推測困難
+- **結果**: サービス間での名寄せが困難（各サービスは異なる通信用DIDを見る）
+
 ## プロトコルフロー
 
-1. Verifierがナンス2とZKP（クレーム情報含む）を送信
+### 必須（DIDComm）
+
+1. Verifierがクレーム情報を送信
 2. Holderが全クレームの署名者のトラストアンカー検証
 3. 信頼できない署名者がいればフロー終了
 4. 信頼できればHolderに検証者情報を表示し、人間の判断を待つ
-5. 許可されたらナンス1を生成してZKP送信
+5. 許可されたらZKP送信（de-linkage情報含む、DIDCommで秘密鍵対応が確定）
+
+### オプショナル（ナンス - サービス実装時）
+
+Verifierがリプレイ攻撃（本人による再利用）を防ぐ場合：
+- Verifierがナンス2を送信
+- Holderがナンス1を生成してZKPに含める
+- Verifierがナンスの一意性を確認
+
+**採択例:**
+- 会員登録初回: ナンス必須（登録重複防止）
+- 年齢確認: ナンス不要（一度限り）
+- ログイン: ナンス不要（毎回新しい通信用DIDで検証）
 
 -/
 
@@ -355,11 +462,30 @@ noncomputable def executeMutualAuth
     }
     ```
 
-    例2: Webサービスログイン
+    例2: Webサービスログイン（DIDComm + チャレンジ署名）
     ```
-    Verifier → Holder:
+    注: 本来はDIDCommで暗号化通信。ここでは簡略化した例を示す。
+
+    **初回登録フロー:**
+    Holder → Service (DIDComm):
+    {
+      holderDID: "did:amt:holder_123",  // Holder側で生成したDID
+      serviceAccountID: "user_service_001",  // Service専用のワンタイム識別子
+      signedConsent: Signature,  // Holderの秘密鍵で署名
+      zkp: ZKP  // 属性証明（ageOver18など、必要に応じて）
+    }
+
+    Service検証:
+    1. DIDCommで受信 ← 通信路の認証完了
+    2. holderDIDの署名を検証
+    3. serviceAccountIDとholderDIDをバインド
+    4. トラストアンカーでHolder DIDを確認（オプション）
+
+    **ログインフロー（チャレンジ-レスポンス）:**
+    Verifier → Holder (DIDComm):
     {
       nonce2: random(),
+      challenge: "prove-account-ownership",
       presentedClaims: [
         {
           claimData: { data: "SNSサービス", claimID: Some "social_service" },
@@ -367,16 +493,30 @@ noncomputable def executeMutualAuth
         }
       ],
       verifierDID: "did:amt:sns_app",
-      requestedAttributes: {  // 必須：サービス固有ID
+      requestedAttributes: {
         type: ["object"],
         properties: {
-          serviceAccountID: { type: ["string"] },  // サービス固有の識別子
-          lastLoginTimestamp: { type: ["integer"] }
+          serviceAccountID: { type: ["string"] },  // Service固有の識別子（所有権証明ではない）
+          loginSignature: { type: ["string"] }  // チャレンジに対する署名（所有権証明）
         },
-        required: ["serviceAccountID"]
+        required: ["serviceAccountID", "loginSignature"]
       },
       timestamp: now()
     }
+
+    Holder → Verifier (DIDComm):
+    {
+      nonce1: random(),
+      serviceAccountID: "user_service_001",  // 初回登録時に生成した識別子
+      loginSignature: Sign(nonce2, holderPrivateKey),  // チャレンジ署名でアカウント所有権を証明
+      holderZKP: { /* nonce1 ∥ nonce2を結合したZKP */ }
+    }
+
+    Service検証ポイント:
+    1. DIDCommで通信認証済み
+    2. loginSignatureを検証 → Holder秘密鍵の保持を確認
+    3. serviceAccountIDとholderDIDの紐付けを確認
+    4. ZKPで属性も検証（必要に応じて）
     ```
 
     **Phase 2: Holderの検証プロセス**
@@ -426,34 +566,60 @@ noncomputable def executeMutualAuth
     }
     ```
 
-    例2: Webサービスログインへの応答
+    例2: Webサービスログインへの応答（DIDComm + チャレンジ署名）
     ```
-    Holder → Verifier:
+    Holder → Verifier (DIDComm):
     {
       nonce1: random(),
-      holderZKP: { /* ... */ },
+      serviceAccountID: "user_sns_001",  // Service専用の識別子
+      loginSignature: Sign(nonce2, holderPrivateKey),  // チャレンジ署名
+      holderZKP: {
+        core: {
+          proof: π,
+          publicInput: nonce2 || nonce1,
+          proofPurpose: "credential-presentation",
+          created: now()
+        },
+        holderNonce: nonce1,
+        verifierNonce: nonce2,
+        claimedAttributes: "Account ownership proof for SNS login"
+      },
       providedAttributes: {  // 必須：スキーマ検証済み
         value: {
-          serviceAccountID: "user_sns_001",  // このサービス専用のID
-          lastLoginTimestamp: 1704067200
+          serviceAccountID: "user_sns_001",  // Service専用ID
+          loginSignature: "sig_..."  // チャレンジに対する署名
         },
         schema: <requestedAttributes>
       },
       timestamp: now()
     }
+
+    Service検証:
+    1. DIDCommで受信認証済み
+    2. loginSignatureを秘密鍵で検証
+       - Sign検証成功 → Holder秘密鍵の保持を確認
+       - リプレイ攻撃防止: nonce2が使用済みでないか確認
+    3. serviceAccountIDとHolder DIDの紐付けを確認
+    4. ZKPを検証（属性証明が必要な場合）
     ```
 
-    **重要:** DIDは平文で送信されない。代わりに、サービス固有の識別子を使用。
+    **重要:**
+    - DIDは平文で送信されない（DIDCommで暗号化通信）
+    - serviceAccountIDはService固有の識別子（所有権証明ではない）
+    - loginSignatureでチャレンジ署名により初めてアカウント所有権が証明される
 
     **セキュリティ保証:**
+    - DIDComm認証: 通信路の認証・暗号化
+    - チャレンジ署名: Holderの秘密鍵保持を検証、アカウント所有権を証明
     - トラストアンカー検証: Wallet内の辞書で検証
     - 人間中心: 最終判断はHolderが行う
     - 偽警官対策: 信頼できない発行者のクレームは拒否
-    - リプレイ攻撃対策: 両方のナンスを結合してZKP生成
+    - リプレイ攻撃対策: 両方のナンスを結合してZKP生成 + nonce2の使用済み確認
     - スキーマ検証: 要求された属性データはJSONSchemaで検証済み（必須）
     - 選択的開示: HolderはVerifierが要求した属性のみを提供
-    - 名寄せ回避: DIDを平文で送信せず、サービス固有の識別子を使用
+    - 名寄せ回避: DIDを平文で送信せず、Service固有の識別子を使用
     - プライバシー保護: 属性を提供できない場合、応答全体を返さない
+    - アカウント所有権証明: serviceAccountID単体ではなく、チャレンジ署名と組み合わせ
 -/
 def mutualAuthenticationRequirements : String :=
   "Mutual Authentication Protocol:

@@ -14,8 +14,22 @@ import AMATELUS.TrustChain
 import AMATELUS.ReplayResistance
 import AMATELUS.Privacy
 import AMATELUS.Audit
+import AMATELUS.Network
 
 -- ## Definition 7.1: Protocol State
+
+/-- Wallet内の通信用DID管理情報
+
+    通信相手ごとの通信用DIDとVCのアソシエーション。
+-/
+structure WalletCommunicationRecord where
+  -- 通信用DID
+  commDID : ValidDID
+  -- 通信相手のDID
+  counterpartyDID : UnknownDID
+  -- 発行されたVC（VC発行ありの場合のみ保存）
+  vc : Option ValidVC
+  deriving Repr
 
 /-- プロトコル状態を表す構造体
 
@@ -32,12 +46,21 @@ import AMATELUS.Audit
 
     - **個人番号制度がない国でもプロトコルは機能します:**
       AHI機能を使用せず、通常のDID、VC、ZKPのみで完全に動作します。
+
+    **Wallet通信管理について:**
+    `walletRecords`フィールドは、各通信相手ごとに保存された通信用DIDの情報。
+    これにより、以下が実現される：
+    - VC発行ありの場合: 通信用DIDをWalletに保存、通信相手DIDと紐づけ
+    - VC発行なしの場合: 通信終了と同時に破棄（walletRecordsに追加されない）
+    - ログイン時: 保存された通信相手DIDと通信用DIDで認証継続
 -/
 structure ProtocolState where
   dids : List UnknownDID
   vcs : List UnknownVC
   zkps : List UnknownZKP
   ahis : List AnonymousHashIdentifier  -- オプショナル（空リスト [] 可）
+  -- Walletに保存された通信用DID管理情報
+  walletRecords : List WalletCommunicationRecord
   -- trustGraph は信頼関係のグラフ（簡略化のため省略）
 
 -- ## Definition 7.2: Security Invariant
@@ -134,26 +157,29 @@ inductive StateTransition
 def ValidTransition (s₁ s₂ : ProtocolState) (t : StateTransition) : Prop :=
   match t with
   | StateTransition.DIDGeneration _doc =>
-      -- DID生成: 新しいDIDが追加されるが、VCs、ZKPs、AHIsは変更されない
-      s₂.vcs = s₁.vcs ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis
+      -- DID生成: 新しいDIDが追加されるが、VCs、ZKPs、AHIs、walletRecordsは変更されない
+      s₂.vcs = s₁.vcs ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis ∧ s₂.walletRecords = s₁.walletRecords
   | StateTransition.VCIssuance vc =>
-      -- VC発行: 新しいVCが追加されるが、DIDs、ZKPs、AHIsは変更されない
+      -- VC発行: 新しいVCが追加されるが、DIDs、ZKPs、AHIs、walletRecordsは変更されない
       -- かつ、追加されるVCは暗号学的に有効（署名が正当）
       -- s₂のVCは、s₁のVCまたは新しく追加されるvcのいずれか
-      s₂.dids = s₁.dids ∧ s₂.zkps = s₁.zkps ∧ s₂.ahis = s₁.ahis ∧
+      s₂.dids = s₁.dids ∧ s₂.zkps =
+        s₁.zkps ∧ s₂.ahis = s₁.ahis ∧ s₂.walletRecords = s₁.walletRecords ∧
       UnknownVC.isValid vc ∧
       (∀ vc' ∈ s₂.vcs, vc' ∈ s₁.vcs ∨ vc' = vc) ∧
       (∀ vc' ∈ s₁.vcs, vc' ∈ s₂.vcs)
   | StateTransition.ZKPGeneration zkp =>
-      -- ZKP生成: 新しいZKPが追加されるが、DIDs、VCs、AHIsは変更されない
+      -- ZKP生成: 新しいZKPが追加されるが、DIDs、VCs、AHIs、walletRecordsは変更されない
       -- かつ、追加されるZKPは暗号学的に有効（零知識性を満たす）
-      s₂.dids = s₁.dids ∧ s₂.vcs = s₁.vcs ∧ s₂.ahis = s₁.ahis ∧
+      s₂.dids = s₁.dids ∧ s₂.vcs =
+        s₁.vcs ∧ s₂.ahis = s₁.ahis ∧ s₂.walletRecords = s₁.walletRecords ∧
       -- ZKPが有効（ある関係式に対して検証に成功する）
       (∃ (relation : Relation), UnknownZKP.isValid zkp relation)
   | StateTransition.AuditExecution ahi =>
       -- 監査実行: 新しいAHIが追加される可能性があるが、DIDs、VCs、ZKPsは変更されない
       -- AHIはハッシュ関数で生成されるため、元のNationalIDを復元することは困難
-      s₂.dids = s₁.dids ∧ s₂.vcs = s₁.vcs ∧ s₂.zkps = s₁.zkps ∧
+      s₂.dids = s₁.dids ∧ s₂.vcs = s₁.vcs ∧ s₂.zkps =
+        s₁.zkps ∧ s₂.walletRecords = s₁.walletRecords ∧
       -- AHIが適切に生成されている（形式的には、ある監査区分IDと国民IDから生成）
       (∃ (auditSection : AuditSectionID) (nationalID : NationalID),
         ahi = AnonymousHashIdentifier.fromComponents auditSection nationalID)
@@ -207,7 +233,8 @@ theorem did_generation_preserves_security :
     unfold Auditability at h_inv ⊢
     intro ahi h_ahi
     -- s₂.ahis = s₁.ahis より、h_ahiをs₁.ahisのメンバーシップに変換
-    rw [h_valid.2.2] at h_ahi
+    -- ValidTransition DIDGeneration: vcs ∧ zkps ∧ ahis ∧ walletRecords
+    rw [h_valid.2.2.1] at h_ahi
     exact h_inv.2.2 ahi h_ahi
 
 /-- Theorem: VC発行遷移がセキュリティ不変条件を保持する（暗号強度依存）
@@ -242,10 +269,12 @@ theorem vc_issuance_preserves_security :
   · -- Integrity: すべてのVCが有効（新しいVCも有効）
     unfold Integrity at h_inv ⊢
     intro vc' h_vc'
-    -- s₂のVCは、s₁のVCまたは新しく追加されたvcのいずれか（h_valid.2.2.2.2.1）
+    -- s₂のVCは、s₁のVCまたは新しく追加されたvcのいずれか
+    -- ValidTransitionの構造: dids=dids ∧ zkps=zkps ∧ ahis=ahis ∧ walletRecords=walletRecords ∧
+    --                       isValid vc ∧ (∀ vc' ∈ s₂.vcs, ...) ∧ (∀ vc' ∈ s₁.vcs, ...)
     -- 両方とも有効なので、s₂のすべてのVCが有効
     -- この証明は暗号学的安全性（vc_signature_forgery_quantum_secure）に依存する
-    have h_vc_structure := h_valid.2.2.2.2.1 vc' h_vc'
+    have h_vc_structure := h_valid.2.2.2.2.2.1 vc' h_vc'
     cases h_vc_structure with
     | inl h_in_s1 =>
         -- vc' ∈ s₁.vcs の場合、s₁のIntegrityより有効
@@ -253,7 +282,7 @@ theorem vc_issuance_preserves_security :
     | inr h_eq =>
         -- vc' = vc の場合、ValidTransitionより有効（署名が正当）
         rw [h_eq]
-        exact h_valid.2.2.2.1
+        exact h_valid.2.2.2.2.1
   constructor
   · -- Privacy: DID間の名寄せが困難（DIDリスト不変）
     unfold Privacy at h_inv ⊢
@@ -470,7 +499,8 @@ theorem security_invariant_without_ahi_example :
     dids := [],
     vcs := [],
     zkps := [],
-    ahis := []
+    ahis := [],
+    walletRecords := []
   }
   exists emptyState
   constructor

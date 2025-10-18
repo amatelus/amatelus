@@ -1,29 +1,25 @@
 /-
-# 通信レイヤー定義
+# 通信レイヤー定義（DIDComm統一）
 
 このファイルは、AMATELUSプロトコルの通信レイヤーを定義します。
 
 **設計思想（信頼境界）:**
 - 送信側: Validなデータを送信
-- 通信レイヤー: シリアライズ → 送信（HTTPS/BLE/DIDComm） → 受信 → デシリアライズ
+- 通信レイヤー: シリアライズ → DIDComm送信 → 受信 → デシリアライズ
 - 受信側: Unknownなデータとして受け取り、必ず検証
 
-**2つの通信方式:**
+**統一された通信方式: DIDComm v2.1 + did:amt仕様**
 
-1. **ZKP over HTTPS/BLE**: ZKP専用の軽量プロトコル
-   - ValidZKP → UnknownZKP の送信のみ
-   - 受信側で必ず暗号的検証が必要
+AMATELUSプロトコルは、すべての通信をDIDCommで統一します。
+- メッセージにはDID文字列が含まれる
+- **did:amt特有の制約**: DID文字列だけからDIDDocumentを解決できない
+- そのため、Holderが明示的にDIDDocumentを送信する（Optional）
+- ECDH-1PU認証付き暗号化により中間者攻撃を防ぐ
+- 送信: ValidDID + Optional(ValidDIDDocument) + Optional(VC/ZKP)
+- 受信: UnknownDID + Optional(UnknownDIDDocument) + Optional(UnknownVC/UnknownZKP)
+- すべてのデータが受信側でUnknownとして扱われる
 
-2. **DIDComm v2.1 + did:amt仕様**: DIDベースの相互認証通信プロトコル
-   - メッセージにはDID文字列が含まれる
-   - **did:amt特有の制約**: DID文字列だけからDIDDocumentを解決できない
-   - そのため、Holderが明示的にDIDDocumentを送信する（Optional）
-   - ECDH-1PU認証付き暗号化により中間者攻撃を防ぐ
-   - 送信: ValidDID + Optional(ValidDIDDocument) + Optional(VC/ZKP)
-   - 受信: UnknownDID + Optional(UnknownDIDDocument) + Optional(UnknownVC/UnknownZKP)
-   - すべてのデータが受信側でUnknownとして扱われる
-
-この設計により、型システムで受信側の検証忘れを防ぐことができる。
+この設計により、型システムで受信側の検証忘れを防ぐことができます。
 -/
 
 import AMATELUS.DID
@@ -35,22 +31,53 @@ import AMATELUS.ZKP
 /-- 通信チャネルの種類
 
     **設計思想:**
-    AMATELUSでは2つの異なる通信方式を使用します：
+    AMATELUSでは統一されたDIDCommプロトコルを使用します。
 
-    1. **ZKPoverHTTPSorBLE**: ZKP専用の軽量な通信プロトコル
-       - ValidZKP → UnknownZKP の送信のみ
-       - 受信側で必ず暗号的検証が必要
-
-    2. **DIDComm**: DIDベースの相互認証通信プロトコル（did:amt仕様に準拠）
-       - 送信: ValidDID + Optional(ValidDIDDocument/VC/ZKP)
-       - 受信: UnknownDID + Optional(UnknownDIDDocument/VC/ZKP)
-       - **did:amt制約**: DID解決ができないため、Holderが明示的にDIDDocumentを送信
-       - すべてのデータが受信側でUnknownとして扱われ、検証が必要
+    **DIDComm**: DIDベースの相互認証通信プロトコル（did:amt仕様に準拠）
+    - 送信: ValidDID + Optional(ValidDIDDocument/VC/ZKP)
+    - 受信: UnknownDID + Optional(UnknownDIDDocument/VC/ZKP)
+    - **did:amt制約**: DID解決ができないため、Holderが明示的にDIDDocumentを送信
+    - すべてのデータが受信側でUnknownとして扱われ、検証が必要
 -/
 inductive Channel
-  | ZKPoverHTTPSorBLE     -- ZKP over HTTPS or Bluetooth Low Energy
-  | DIDComm   -- Decentralized Identifier Communication
+  | DIDComm   -- Decentralized Identifier Communication (unified protocol)
   deriving Repr, DecidableEq
+
+-- ## 通信用DIDのライフサイクル
+
+/-- 通信用DID（Ephemeral Communication DID）
+
+    Holderが通信毎に作成する一時的なDID。
+    以下の性質を持つ：
+
+    **ライフサイクル:**
+    1. 各通信開始時に、新しい通信用DIDを生成
+    2. VCが発行された場合: Walletに保存し、通信相手DIDと紐づけて管理
+    3. VCが発行されなかった場合: 通信終了と同時にDIDを破棄（削除）
+
+    **設計目的:**
+    - 身分証明用DID（Identity DID）との名寄せ回避
+    - 通信毎の一時的な匿名性確保
+    - VC発行成功時のみ永続化
+
+    **Wallet保存形式:**
+    通信用DIDが保存される際、以下の情報を紐づけて保存：
+    - communicationDID: 通信用DID
+    - counterpartyDID: 通信相手のDID
+    - createdAt: 作成時刻
+    - vc: 発行されたVC（オプショナル）
+
+    このアソシエーション情報により、ログイン時に「この通信用DIDで
+    そのサービスと通信していた」という履歴を参照できる。
+-/
+structure CommunicationDIDInfo where
+  -- 通信用DID
+  did : ValidDID
+  -- 通信相手のDID
+  counterpartyDID : UnknownDID
+  -- 紐づけられたVC（VC発行時のみ保存）
+  issuedVC : Option ValidVC
+  deriving Repr
 
 -- ## DIDCommメッセージ構造
 
@@ -58,9 +85,27 @@ inductive Channel
 
     **構造:**
     - senderDID: 送信者のValidDID（メッセージの`from`フィールド）
+      - 通常: 通信用DID（Ephemeral）
+      - トラストアンカー: 固定DID
     - senderDoc: オプショナルなValidDIDDocument（did:amt仕様に準拠）
     - vcs: ValidVCのリスト（IssuerがHolderに発行する場合、Verifierが認証情報を送る場合など）
     - zkp: オプショナルなValidZKP（相互認証時など）
+
+    **ZKPに含まれる名寄せ回避メカニズム:**
+    ZKPは以下の2つのDID所有権を証明する：
+    1. 身分証明用DID（Identity DID）の秘密鍵所有権（提示したいクレーム関連）
+    2. 通信用DID（Communication DID）の秘密鍵所有権
+
+    ZKPがこの両方を証明することで、Verifierは
+    「クレームの所有者と通信相手は同じエンティティ」と確認できつつ、
+    複数の身分証明用DIDを同じ通信相手と関連付けることはできない。
+
+    **秘密鍵対応の確定性（なりすまし攻撃の防止）:**
+    DIDCommメッセージで相手の公開鍵が明確に送信されるため：
+    - Verifierは「このZKPはこの公開鍵に対応する秘密鍵で生成されている」と確定的に知る
+    - 攻撃者が異なる秘密鍵でZKPを再利用することは暗号学的に不可能
+    - つまり、「異なる秘密鍵での署名」=「秘密鍵所有権の偽造」であり、完全ななりすまし
+    - ナンスにより本人によるリプレイは防止（これは秘密鍵の問題ではなく新鮮性の問題）
 
     **設計思想（DIDComm v2.1 + did:amt仕様に準拠）:**
     - メッセージにはDID文字列のみが含まれる
@@ -123,52 +168,89 @@ structure DIDCommMessageReceive where
   vcs : List UnknownVC
   zkp : Option UnknownZKP
 
--- ## ZKP over HTTPS/BLE 通信関数
+-- ## 通信用DID管理関数
 
 namespace Network
 
-/-- ZKP送信（ZKP over HTTPS/BLE）: ValidZKPを送信し、UnknownZKPとして受信される
+/-- 通信用DIDを生成する
+
+    **プロセス:**
+    1. 新しい秘密鍵ペア(SK, PK)を生成
+    2. DIDDocumentを作成（PKから生成）
+    3. ValidDIDDocumentを構築（所有権を検証済みとして扱う）
+    4. ValidDIDを生成
+
+    **性質:**
+    - 毎回異なるDIDが生成される（秘密鍵が異なる）
+    - 身分証明用DIDとは独立している
+
+    **実装詳細:**
+    この関数は生成プロセスを抽象化しており、
+    実際の暗号操作（鍵生成等）は実装時に補完される。
+-/
+noncomputable def generateCommunicationDID : ValidDID := by
+  -- 理想的なケース: 新しい秘密鍵ペアから生成
+  -- 実装時には、generateNewKeyPair → createDIDDocument → ValidDID に変換
+  -- ここではダミーの通信用DIDを返す（実装時に補完）
+  exact {
+    w3cDID := { value := "did:amt:communication:ephemeral" },
+    hash := { value := [] },
+    purpose := DIDPurpose.Communication
+  }
+
+/-- 通信用DIDをWalletに保存する
+
+    **パラメータ:**
+    - commDID: 生成された通信用DID
+    - counterpartyDID: 通信相手のDID
+    - issuedVC: VC発行時のみSome vc、VCなしの場合は None
+
+    **戻り値:**
+    - CommunicationDIDInfo: 保存される情報
 
     **設計思想:**
-    HolderがVerifierにZKPを送信する際、Holder側ではValidZKP（暗号的に正しい）
-    だが、Verifier側はこれを信頼できないため、Unknownとして受け取る。
+    - VC発行時のみ永続化される
+    - VCなし（検証のみ）の場合は、破棄される
+    - Wallet内で「このサービスと通信したDID」を追跡可能
+
+    **ログイン時の利用:**
+    会員登録が必要なサービスの場合、以下のフロー：
+    1. Holder: 新しい通信用DIDを生成してサービスと通信
+    2. Issuer: VC（会員証など）を発行
+    3. Holder: 通信用DIDをWalletに保存
+    4. 次回ログイン: 同じ通信用DIDを使用してメッセージ認証
+
+    `counterpartyDID`と`did`の紐づけにより、
+    ログイン時に「どのサービスと通信していたか」が明確になる。
+-/
+noncomputable def saveCommunicationDID
+    (commDID : ValidDID)
+    (counterpartyDID : UnknownDID)
+    (issuedVC : Option ValidVC) : CommunicationDIDInfo :=
+  { did := commDID, counterpartyDID := counterpartyDID, issuedVC := issuedVC }
+
+/-- 通信用DIDを破棄する（VC発行なし時）
+
+    **タイミング:**
+    - VC発行なし（検証のみ）で通信終了した場合
+    - 通信用DIDは生成したものの、発行されなかった場合
+
+    **処理:**
+    - Walletの通信用DID管理リストから削除
+    - メモリから破棄
 
     **型システムによる保証:**
-    受信側は必ず`UnknownZKP.verify`で暗号的検証を行う必要がある。
-    検証せずに使用することは型エラーになる。
+    VCが発行されなかった場合、通信は失敗を返す。
+    その場合、この関数が呼ばれて通信用DIDが破棄される。
 
-    **実装:**
-    この関数は通信プロセス（シリアライズ → 送信（HTTPS/BLE） → 受信 → デシリアライズ）を
-    抽象化したもの。実際の通信エラーや改ざんは、この関数の外でモデル化される
-    （例: 攻撃者が`UnknownZKP.invalid`を注入）。
+    **実装詳細:**
+    この関数は破棄プロセスを抽象化しており、
+    実装時には、Walletから該当DIDを削除する処理が補完される。
 -/
-noncomputable def sendZKPoverHTTPSorBLE (zkp : ValidZKP) : UnknownZKP :=
-  -- 理想的なケース: 送信側が正しくValidZKPを送り、改ざんされずに届く
-  -- しかし、受信側はこれを信頼できないため、Unknownとして扱う
-  UnknownZKP.valid zkp
-
-/-- ZKP受信（ZKP over HTTPS/BLE）: UnknownZKPを検証してValidZKPに変換
-
-    **使用例:**
-    ```lean
-    -- 送信側（Holder）
-    let zkp : ValidZKP := generateZKP ...
-    let unknownZKP := Network.sendZKPoverHTTPSorBLE zkp
-
-    -- 受信側（Verifier）
-    match Network.receiveZKPoverHTTPSorBLE unknownZKP someRelation with
-    | some validZKP =>
-        -- 検証成功: ValidZKPとして使用可能
-        acceptProof validZKP
-    | none =>
-        -- 検証失敗: 拒否
-        error "Invalid ZKP received"
-    ```
--/
-def receiveZKPoverHTTPSorBLE (zkp : UnknownZKP) (_relation : Relation) : Option ValidZKP :=
-  match zkp with
-  | UnknownZKP.valid validZKP => some validZKP
-  | UnknownZKP.invalid _ => none
+noncomputable def discardCommunicationDID (_commDID : ValidDID) : Unit :=
+  -- 理想的なケース: 通信用DIDをメモリから削除
+  -- 実装時には、Wallet管理リストから該当DIDを削除
+  ()
 
 -- ## DIDComm 通信関数
 
@@ -277,61 +359,9 @@ def verifyReceivedZKP (zkp : UnknownZKP) (_relation : Relation) : Option ValidZK
 
 end Network
 
--- ## 通信レイヤーの安全性定理
+-- ## 通信レイヤーの安全性定理（DIDComm統一）
 
 namespace Network
-
--- ### ZKP over HTTPS/BLE の定理
-
-/-- Theorem: 正しく送信されたZKPは検証に成功する（ZKP over HTTPS/BLEの完全性）
-
-    **設計思想:**
-    - 送信側がValidZKPを送信し、改ざんされずに届いた場合、検証に成功する
-    - これは通信レイヤーの理想的なケース
-
-    **現実:**
-    - 攻撃者が改ざんした場合、`UnknownZKP.invalid`が届く
-    - その場合、`receiveZKPoverHTTPSorBLE`は`none`を返す（健全性）
--/
-theorem send_receive_zkp_over_https_ble_completeness :
-  ∀ (zkp : ValidZKP) (relation : Relation),
-    let unknownZKP := sendZKPoverHTTPSorBLE zkp
-    receiveZKPoverHTTPSorBLE unknownZKP relation = some zkp := by
-  intro zkp relation
-  unfold sendZKPoverHTTPSorBLE receiveZKPoverHTTPSorBLE
-  rfl
-
-/-- Theorem: ZKP over HTTPS/BLEの型安全性
-
-    **保証:**
-    受信側は必ずUnknownZKPを受け取るため、検証を忘れることができない。
-    型システムが検証を強制する。
-
-    **形式化:**
-    - `sendZKPoverHTTPSorBLE : ValidZKP → UnknownZKP`（検証済み → 未検証）
-    - `receiveZKPoverHTTPSorBLE : UnknownZKP → Relation → Option ValidZKP`（検証必須）
--/
-theorem zkp_over_https_ble_type_safety :
-  -- 送信側: ValidZKPを送る
-  (∀ (zkp : ValidZKP),
-    ∃ (unknownZKP : UnknownZKP), unknownZKP = sendZKPoverHTTPSorBLE zkp) ∧
-  -- 受信側: UnknownZKPを受け取り、検証が必須
-  (∀ (unknownZKP : UnknownZKP) (validZKP : ValidZKP) (relation : Relation),
-    receiveZKPoverHTTPSorBLE unknownZKP relation = some validZKP →
-    unknownZKP = UnknownZKP.valid validZKP) := by
-  constructor
-  · -- 送信側
-    intro zkp
-    exact ⟨sendZKPoverHTTPSorBLE zkp, rfl⟩
-  · -- 受信側
-    intro unknownZKP validZKP relation h_some
-    unfold receiveZKPoverHTTPSorBLE at h_some
-    cases unknownZKP with
-    | valid zkp =>
-        simp at h_some
-        rw [← h_some]
-    | invalid _ =>
-        simp at h_some
 
 -- ### DIDComm の定理
 

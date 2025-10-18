@@ -122,6 +122,34 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
   | none => ""
   | some (_, id) => id
 
+/-- DIDの種類（目的）
+
+    **Identity DID:**
+    - 身分証明用の永続的なDID
+    - 運転免許証、パスポート、資格情報など身分を示すVCの主体
+    - 長期間保持され、複数のサービスで参照される可能性がある
+
+    **Communication DID:**
+    - 通信毎に生成される一時的なDID
+    - サービス毎に異なる通信相手との通信に使用
+    - VCが発行されない場合は破棄
+    - VCが発行される場合は、Walletで通信相手DIDと紐づけて保存
+    - **複数サービス間での名寄せ回避**: ZKP不学性により、複数のサービスから
+      異なる通信用DIDを観測しても、背後にある同じIdentity DIDを推測困難
+    - **サービス内ログイン**: 保存された同じ通信用DIDで認証継続（名寄せ不要）
+
+    **Trust Anchor DID:**
+    - 政府や公式機関による固定的なDID
+    - VC発行者として使用（自治体、銀行等）
+    - トラストアンカーとして公式サイトから配布
+    - 永続的かつ公開的に信頼される
+-/
+inductive DIDPurpose
+  | Identity
+  | Communication
+  | TrustAnchor
+  deriving Repr, DecidableEq
+
 /-- 正規のDID（検証済み）
 
     Wallet内に対応するIdentityがあり、秘密鍵を保持しているDID。
@@ -129,15 +157,22 @@ def extractMethodSpecificId (did : W3C.DID) : String :=
     **フィールド:**
     - w3cDID: W3C DID仕様に準拠したDID識別子
     - hash: DIDDocumentから計算されたハッシュ値（did:amt仕様のmethod-specific-id）
+    - purpose: DIDの使用目的（Identity、Communication、TrustAnchor）
 
     **did:amt仕様:**
     - did:amt仕様では、method-specific-idがDIDDocumentのハッシュです
     - hashフィールドはこのハッシュ値を保持します
     - w3cDIDのmethod-specific-id部分とhashは一致する必要があります
+
+    **設計思想:**
+    - Identity DID: 永続的、複数のサービスで使用可能
+    - Communication DID: 一時的、VC発行なしなら破棄
+    - Trust Anchor DID: 公開的、Issuer/Verifierが使用
 -/
 structure ValidDID where
   w3cDID : W3C.DID
   hash : Hash
+  purpose : DIDPurpose
   deriving Repr, DecidableEq
 
 /-- 不正なDID
@@ -267,12 +302,13 @@ noncomputable def ValidDIDDocumentToDID (doc : ValidDIDDocument) : W3C.DID :=
 
 namespace UnknownDID
 
-/-- ValidDIDDocumentからValidDIDを生成
+/-- ValidDIDDocumentからValidDIDを生成（デフォルト: Identity）
 
     ValidDIDDocumentをシリアライズしてハッシュを計算し、ValidDIDを構築します。
+    この関数は、既存のコードとの互換性を保つため、デフォルトでIdentityを選択します。
 
     **AMATELUSでの使用:**
-    - Issuer: チャレンジ検証後にValidDIDを取得
+    - Issuer: チャレンジ検証後にValidDIDを取得（通常はIdentity）
     - Verifier: トラストアンカーの公開UnknownDIDDocumentからValidDIDを取得
 
     この定義により、以下が保証される：
@@ -283,19 +319,61 @@ noncomputable def fromValidDocument (doc : ValidDIDDocument) : ValidDID :=
   let w3cDID := ValidDIDDocumentToDID doc
   let serialized := serializeUnknownDIDDocument doc
   let hash := hashForDID serialized
-  { w3cDID := w3cDID, hash := hash }
+  { w3cDID := w3cDID, hash := hash, purpose := DIDPurpose.Identity }
 
-/-- UnknownDIDDocumentからDID（和型）を生成する
+/-- ValidDIDDocumentからValidDIDを生成（目的指定版）
 
-    - ValidDIDDocument → ValidDID（w3cDIDとhashを含む）
+    **パラメータ:**
+    - doc: ValidDIDDocument
+    - purpose: DIDの使用目的（Identity、Communication、TrustAnchor）
+
+    **AMATELUSでの使用:**
+    - Holder: 通信毎に通信用DIDを生成（Communication）
+    - Issuer/Verifier: 特定の目的でDID生成時
+-/
+noncomputable def fromValidDocumentWithPurpose
+    (doc : ValidDIDDocument) (purpose : DIDPurpose) : ValidDID :=
+  let w3cDID := ValidDIDDocumentToDID doc
+  let serialized := serializeUnknownDIDDocument doc
+  let hash := hashForDID serialized
+  { w3cDID := w3cDID, hash := hash, purpose := purpose }
+
+/-- UnknownDIDDocumentからDID（和型）を生成する（デフォルト: Identity）
+
+    **変換:**
+    - ValidDIDDocument → ValidDID（w3cDIDとhashを含む、purposeはIdentityに固定）
     - InValidDIDDocument → InvalidDID（w3cDIDとreasonを含む）
 
     この関数により、UnknownDIDDocumentの正規性がDIDの正規性に反映されます。
+    既存のコードとの互換性を保つため、デフォルトでIdentityを選択します。
 -/
 noncomputable def fromDocument (doc : UnknownDIDDocument) : UnknownDID :=
   match doc with
   | UnknownDIDDocument.valid vdoc =>
       UnknownDID.valid (fromValidDocument vdoc)
+  | UnknownDIDDocument.invalid idoc =>
+      UnknownDID.invalid {
+        w3cDID := idoc.w3cDoc.id,
+        reason := "Invalid UnknownDIDDocument: " ++ idoc.reason
+      }
+
+/-- UnknownDIDDocumentからDID（和型）を生成する（目的指定版）
+
+    **パラメータ:**
+    - doc: UnknownDIDDocument
+    - purpose: DIDの使用目的（Identity、Communication、TrustAnchor）
+
+    **変換:**
+    - ValidDIDDocument → ValidDID（w3cDIDとhashとpurposeを含む）
+    - InValidDIDDocument → InvalidDID（w3cDIDとreasonを含む）
+
+    この関数により、UnknownDIDDocumentの正規性がDIDの正規性に反映されます。
+-/
+noncomputable def fromDocumentWithPurpose
+    (doc : UnknownDIDDocument) (purpose : DIDPurpose) : UnknownDID :=
+  match doc with
+  | UnknownDIDDocument.valid vdoc =>
+      UnknownDID.valid (fromValidDocumentWithPurpose vdoc purpose)
   | UnknownDIDDocument.invalid idoc =>
       UnknownDID.invalid {
         w3cDID := idoc.w3cDoc.id,
@@ -324,23 +402,51 @@ def toValidDID (did : UnknownDID) : Option ValidDID :=
   | valid v => some v
   | invalid _ => none
 
-/-- DIDがValidDIDDocumentから正しく生成されたかを検証 -/
+/-- DIDがValidDIDDocumentから正しく生成されたかを検証（デフォルト: Identity）
+
+    **パラメータ:**
+    - did: 検証対象のDID
+    - doc: ValidDIDDocument
+
+    **検証:**
+    - did が valid で、fromValidDocument doc と等しい場合のみ成功
+    - invalid なDIDは常に失敗
+
+    既存のコードとの互換性を保つため、デフォルトでIdentityを選択します。
+-/
 def isValid (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   match did with
   | valid v => v = fromValidDocument doc
   | invalid _ => False  -- 不正なDIDは常に無効
 
+/-- DIDがValidDIDDocumentから正しく生成されたかを検証（目的指定版）
+
+    **パラメータ:**
+    - did: 検証対象のDID
+    - doc: ValidDIDDocument
+    - purpose: 期待されるDIDの使用目的
+
+    **検証:**
+    - did が valid で、fromValidDocumentWithPurpose doc purpose と等しい場合のみ成功
+    - invalid なDIDは常に失敗
+-/
+def isValidWithPurpose (did : UnknownDID) (doc : ValidDIDDocument) (purpose : DIDPurpose) : Prop :=
+  match did with
+  | valid v => v = fromValidDocumentWithPurpose doc purpose
+  | invalid _ => False  -- 不正なDIDは常に無効
+
 -- ## DIDとDIDドキュメントの正規性
 
-/-- 正規のDID-DIDドキュメントのペア
+/-- 正規のDID-DIDドキュメントのペア（デフォルト: Identity）
 
     HolderがVerifierに提示するペアは、この述語を満たす必要がある。
     正規のペアは、DIDがValidDIDDocumentから正しく生成されたものである。
+    既存のコードとの互換性を保つため、デフォルトでIdentityを選択します。
 -/
 def isCanonicalPair (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   isValid did doc
 
-/-- 不正なDID-DIDドキュメントのペア
+/-- 不正なDID-DIDドキュメントのペア（デフォルト: Identity）
 
     以下のいずれかの場合、ペアは不正である：
     1. DIDとValidDIDDocumentが一致しない
@@ -348,6 +454,27 @@ def isCanonicalPair (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
 -/
 def isInvalidPair (did : UnknownDID) (doc : ValidDIDDocument) : Prop :=
   ¬isValid did doc
+
+/-- 正規のDID-DIDドキュメントのペア（目的指定版）
+
+    HolderがVerifierに提示するペアは、この述語を満たす必要がある。
+    正規のペアは、DIDがValidDIDDocumentから正しく生成されたものであり、
+    purposeが一致しているものである。
+-/
+def isCanonicalPairWithPurpose
+    (did : UnknownDID) (doc : ValidDIDDocument) (purpose : DIDPurpose) : Prop :=
+  isValidWithPurpose did doc purpose
+
+/-- 不正なDID-DIDドキュメントのペア（目的指定版）
+
+    以下のいずれかの場合、ペアは不正である：
+    1. DIDとValidDIDDocumentが一致しない
+    2. InValidDIDDocumentから生成されたDID
+    3. purposeが期待値と異なる
+-/
+def isInvalidPairWithPurpose
+    (did : UnknownDID) (doc : ValidDIDDocument) (purpose : DIDPurpose) : Prop :=
+  ¬isValidWithPurpose did doc purpose
 
 /-- Theorem: 不正なペアは検証に失敗する
 

@@ -6,7 +6,7 @@ usemathjax: true
 <!-- Quick Overview Section -->
 <section class="quick-overview">
   <h2>What is AMATELUS?</h2>
-  <p>AMATELUS is a <strong>decentralized identity protocol</strong> that enables secure, privacy-preserving identity verification without relying on blockchain, centralized authorities, or external registries.</p>
+  <p>AMATELUS is a <strong>decentralized identity protocol</strong> that enables secure, privacy-preserving identity verification without relying on blockchain, centralized authorities, or external registries. The protocol's cryptographic and architectural properties are <strong>formally verified using the Lean 4 theorem prover</strong>, ensuring mathematical correctness and security guarantees that go beyond standard implementation testing.</p>
 
   <div class="feature-cards">
     <div class="feature-card">
@@ -32,6 +32,86 @@ usemathjax: true
       <h3>Offline-First Resolution</h3>
       <p>DIDs resolve locally. No network calls to central authorities. You can verify identities completely offline when needed.</p>
     </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">✔️</div>
+      <h3>Formally Verified</h3>
+      <p>Cryptographic and architectural properties are formally proven using Lean 4. Mathematical correctness goes beyond implementation testing.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">🧮</div>
+      <h3>Mathematically Proven</h3>
+      <p>Security guarantees are mathematically sound. Replay resistance, impersonation prevention, and Sybil attack resilience are all formally verified.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Challenges Addressed Section -->
+<section class="challenges-addressed">
+  <h2>Challenges of Traditional DID/VC Systems</h2>
+  <p>Existing DID and Verifiable Credential approaches face significant real-world implementation challenges, particularly in government and administrative contexts. AMATELUS addresses these issues:</p>
+
+  <div class="challenge">
+    <div class="challenge-icon">🔗</div>
+    <h3>Centralized Registry Dependency</h3>
+    <p><strong>Traditional Approach:</strong> Many DID systems rely on blockchain (Ethereum, Hyperledger) or IPFS for storing DID documents and resolution.</p>
+    <p><strong>Problem:</strong> Government and administrative agencies struggle to adopt technologies that require external infrastructure, cryptocurrency knowledge, or distributed ledger participation. Regulatory barriers and operational complexity make deployment difficult.</p>
+    <p><strong>AMATELUS Solution:</strong> DIDs resolve locally using only cryptographic mathematics. No blockchain, no IPFS, no external dependencies. Self-sovereign by design—perfect for government deployment.</p>
+  </div>
+
+  <div class="challenge">
+    <div class="challenge-icon">👥</div>
+    <h3>Linkability Through Selective Disclosure</h3>
+    <p><strong>Traditional Approach:</strong> Selective disclosure in standard VC systems allows proving specific claims while hiding others. However, the set of disclosed attributes can become a unique fingerprint.</p>
+    <p><strong>Problem:</strong> When multiple credentials are presented with selective disclosure, verifiers can correlate the same person across different transactions by matching disclosed attributes and patterns. This inadvertently enables name-matching (name-linking attacks) and reveals unnecessary personal information despite privacy claims.</p>
+    <p><strong>AMATELUS Solution:</strong> Zero-knowledge proofs allow you to prove claims without revealing the underlying attributes. Different proofs for different services cannot be linked. You prove "I meet the requirement" without revealing "what requirement" or "how many times" you proved it.</p>
+  </div>
+
+  <div class="challenge">
+    <div class="challenge-icon">📋</div>
+    <h3>Audit Trail vs. Privacy Trade-off</h3>
+    <p><strong>Traditional Approach:</strong> When zero-knowledge proofs are used extensively, administrators cannot audit who proved what credentials to whom. The system becomes cryptographically opaque.</p>
+    <p><strong>Problem:</strong> Government agencies and regulated institutions need audit mechanisms for fraud detection and accountability. Yet full cryptographic privacy (via ZKPs) eliminates the possibility of conducting post-hoc audits or investigations, creating a false choice between privacy and governance.</p>
+    <p><strong>AMATELUS Solution:</strong> AMATELUS supports optional, context-specific audit mechanisms. Verifiers can optionally record proof metadata (timestamp, which credential was proved, to whom). This enables auditing for government services while users can still use different DIDs with different providers to maintain privacy across contexts. Audit capability is decoupled from cryptographic privacy.</p>
+  </div>
+</section>
+
+<!-- Protocol Layers Section -->
+<section class="protocol-layers">
+  <h2>Clean Protocol Design: Protocol Layer vs. Application Layer</h2>
+  <p>AMATELUS makes a clear distinction between what the cryptographic protocol guarantees and what applications must implement. This separation of concerns creates a minimal, focused protocol while allowing applications to add features without protocol complexity.</p>
+
+  <div class="layer-comparison">
+    <div class="layer">
+      <div class="layer-icon">🔐</div>
+      <h3>AMATELUS Protocol Layer (Mandatory)</h3>
+      <p><strong>What AMATELUS Guarantees:</strong></p>
+      <ul>
+        <li><strong>Impersonation Attack Prevention:</strong> DIDComm's secret key correspondence certainty makes impersonation cryptographically impossible. Attackers with different secret keys cannot reuse legitimate ZKPs.</li>
+        <li><strong>Privacy through Decentralization:</strong> No blockchain, no IPFS, no external registries. Complete local resolution.</li>
+        <li><strong>Formal Verification:</strong> Cryptographic properties proven with Lean 4 theorem prover.</li>
+        <li><strong>Zero-Knowledge Proofs:</strong> Prove attributes without revealing identity or personal details.</li>
+      </ul>
+    </div>
+
+    <div class="layer">
+      <div class="layer-icon">🏗️</div>
+      <h3>Application Layer (Your Responsibility)</h3>
+      <p><strong>What Your Application Implements:</strong></p>
+      <ul>
+        <li><strong>Replay Attack Prevention (Optional):</strong> If your application requires preventing legitimate users from reusing the same ZKP across multiple sessions, implement nonce-based mechanisms in your application. AMATELUS protocol doesn't enforce this.</li>
+        <li><strong>Session Management:</strong> Create new communication DIDs for each session to maintain privacy.</li>
+        <li><strong>Audit Logging:</strong> Record proof metadata (timestamp, which credential, to whom) as needed for compliance or fraud detection.</li>
+        <li><strong>Service-Specific Policies:</strong> Implement authorization, rate limiting, fraud detection specific to your service.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="layer-example">
+    <h4>Example: Age Verification Service</h4>
+    <p><strong>Protocol Layer (AMATELUS handles):</strong> User proves "age >= 18" with a ZKP signed by their private key, transmitted via DIDComm. No impersonation possible.</p>
+    <p><strong>Application Layer (Your Service):</strong> Decide: Does a user need to prove age only once per session, or can they reuse the same proof multiple times? Implement nonce checking if reuse is a concern.</p>
   </div>
 </section>
 
@@ -140,37 +220,37 @@ usemathjax: true
 
     <div class="comparison-row">
       <div class="comparison-cell feature">External Registry</div>
-      <div class="comparison-cell">❌ Not needed</div>
-      <div class="comparison-cell">✓ Blockchain required</div>
-      <div class="comparison-cell">✓ Central server</div>
+      <div class="comparison-cell">Not needed</div>
+      <div class="comparison-cell">Blockchain required</div>
+      <div class="comparison-cell">Central server</div>
     </div>
 
     <div class="comparison-row">
       <div class="comparison-cell feature">Privacy</div>
-      <div class="comparison-cell">✓ Excellent</div>
-      <div class="comparison-cell">⚠ Public ledger</div>
-      <div class="comparison-cell">❌ Surveilled</div>
+      <div class="comparison-cell">Excellent</div>
+      <div class="comparison-cell">Public ledger</div>
+      <div class="comparison-cell">Surveilled</div>
     </div>
 
     <div class="comparison-row">
       <div class="comparison-cell feature">Resolution Cost</div>
-      <div class="comparison-cell">❌ Free (local)</div>
-      <div class="comparison-cell">✓ Network fees</div>
-      <div class="comparison-cell">✓ Infrastructure costs</div>
+      <div class="comparison-cell">Free (local)</div>
+      <div class="comparison-cell">Network fees</div>
+      <div class="comparison-cell">Infrastructure costs</div>
     </div>
 
     <div class="comparison-row">
       <div class="comparison-cell feature">Offline Capability</div>
-      <div class="comparison-cell">✓ Full support</div>
-      <div class="comparison-cell">❌ No</div>
-      <div class="comparison-cell">❌ No</div>
+      <div class="comparison-cell">Full support</div>
+      <div class="comparison-cell">No</div>
+      <div class="comparison-cell">No</div>
     </div>
 
     <div class="comparison-row">
       <div class="comparison-cell feature">Scalability</div>
-      <div class="comparison-cell">✓ Unlimited</div>
-      <div class="comparison-cell">⚠ Limited</div>
-      <div class="comparison-cell">⚠ Limited</div>
+      <div class="comparison-cell">Unlimited</div>
+      <div class="comparison-cell">Limited</div>
+      <div class="comparison-cell">Limited</div>
     </div>
   </div>
 </section>
@@ -212,7 +292,7 @@ usemathjax: true
 
 <!-- Key Properties Section -->
 <section class="key-properties">
-  <h2>Formal Properties (Proven)</h2>
+  <h2>Formal Properties (Proven with Lean 4)</h2>
 
   <div class="property">
     <h3>Cryptographic Integrity</h3>
@@ -336,6 +416,56 @@ usemathjax: true
   .quick-overview h2 {
     border-bottom: 3px solid #667eea;
     padding-bottom: 10px;
+  }
+
+  .challenges-addressed {
+    margin-bottom: 50px;
+    background: #fffbf0;
+    padding: 30px;
+    border-radius: 8px;
+  }
+
+  .challenges-addressed h2 {
+    color: #d97706;
+    margin-top: 0;
+  }
+
+  .challenges-addressed > p {
+    color: #666;
+    font-size: 1em;
+    margin-bottom: 25px;
+  }
+
+  .challenge {
+    background: white;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 6px;
+    border-left: 4px solid #d97706;
+    display: flex;
+    gap: 20px;
+  }
+
+  .challenge-icon {
+    flex-shrink: 0;
+    font-size: 2em;
+    min-width: 50px;
+  }
+
+  .challenge h3 {
+    margin: 0 0 12px 0;
+    color: #333;
+  }
+
+  .challenge p {
+    margin: 10px 0 0 0;
+    color: #666;
+    line-height: 1.6;
+    font-size: 0.95em;
+  }
+
+  .challenge p:first-of-type {
+    margin-top: 0;
   }
 
   .feature-cards {
@@ -675,5 +805,95 @@ usemathjax: true
     .step-number {
       margin-bottom: 0;
     }
+
+    .challenge {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .challenge-icon {
+      min-width: auto;
+    }
+
+    .layer-comparison {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .protocol-layers {
+    margin-bottom: 50px;
+    background: #e8f4f8;
+    padding: 30px;
+    border-radius: 8px;
+  }
+
+  .protocol-layers h2 {
+    color: #0066cc;
+    margin-top: 0;
+  }
+
+  .protocol-layers > p {
+    color: #666;
+    font-size: 1em;
+    margin-bottom: 25px;
+  }
+
+  .layer-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+  }
+
+  .layer {
+    background: white;
+    padding: 25px;
+    border-radius: 6px;
+    border-left: 4px solid #0066cc;
+  }
+
+  .layer-icon {
+    font-size: 2em;
+    margin-bottom: 10px;
+  }
+
+  .layer h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+  }
+
+  .layer p {
+    margin: 0 0 15px 0;
+    color: #666;
+    font-weight: 500;
+  }
+
+  .layer ul {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .layer li {
+    margin: 12px 0;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .layer-example {
+    background: white;
+    padding: 25px;
+    border-radius: 6px;
+    border-left: 4px solid #0066cc;
+  }
+
+  .layer-example h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+  }
+
+  .layer-example p {
+    margin: 12px 0;
+    color: #666;
+    line-height: 1.6;
   }
 </style>

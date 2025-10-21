@@ -29,6 +29,43 @@ ZKP reveal attribute ownership without revealing identity:
   \item \textbf{Verified}: ZKP authenticity via public key
 \end{itemize}
 
+\subsection{Privacy Preservation Under DIDComm}
+
+A critical design question: How can DIDComm's requirement for explicit public key transmission
+(for impersonation prevention) coexist with privacy protection?
+
+\begin{theorem}
+  \label{thm:privacy-with-didcomm}
+  Privacy is maintained despite public key transmission via DIDComm due to:
+
+  \begin{itemize}
+    \item \textbf{Ephemeral Communication DIDs}: Each session uses distinct DIDs with different key pairs
+    \item \textbf{Different services, different keys}: User generates new keys for each service
+    \item \textbf{Cryptographic unlinkability}: Public keys from different sessions cannot be linked
+      (requires $2^{128}$ quantum operations to link, assuming quantum-resistant hash functions)
+    \item \textbf{Service-specific communication DIDs}: Verifier knows only the communication DID,
+      not the user's persistent identity DID
+  \end{itemize}
+
+  \textbf{Result}: While DIDComm requires public key disclosure for impersonation prevention,
+  the use of ephemeral DIDs with distinct key pairs per service ensures cross-service
+  unlinkability and privacy.
+
+  \lean{AMATELUS.Privacy}
+  \leanok
+\end{theorem}
+
+\subsection{Application-Layer Privacy Considerations}
+
+Applications using AMATELUS should consider additional privacy measures:
+
+\begin{itemize}
+  \item \textbf{Session management}: Create new communication DIDs for each session to prevent cross-session linkability
+  \item \textbf{Retention policies}: Do not retain communication DIDs or ZKPs longer than necessary
+  \item \textbf{Logging}: Minimize logging of ZKPs and DIDDocuments; log only what is necessary for application function
+  \item \textbf{Nonce handling}: If implementing nonce mechanisms (application responsibility), handle nonce values with privacy in mind
+\end{itemize}
+
 \section{Deniable Authentication}
 
 For privacy-sensitive scenarios, anonymous encryption (Anoncrypt) available:

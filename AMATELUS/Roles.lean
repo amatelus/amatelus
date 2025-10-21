@@ -269,7 +269,6 @@ structure VerifierAuthMessage where
   expectedTrustAnchor : UnknownDID
   verifierDID : UnknownDID
   verifierCredentials : List UnknownVC
-  nonce2 : Nonce
   authProof : UnknownZKP
 
 namespace VerifierAuthMessage

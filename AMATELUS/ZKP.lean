@@ -13,12 +13,12 @@ structure Timestamp where
   unixTime : Nat
   deriving Repr, DecidableEq
 
-/-- ナンスを表す型 -/
-structure Nonce where
-  value : List UInt8
-  deriving Repr, BEq, DecidableEq
-
 -- ## Definition 2.3: Zero-Knowledge Proof
+
+-- **Note on Nonce Handling:**
+-- Nonce generation and management are NOT part of AMATELUS protocol.
+-- These are application-layer responsibilities for services that require replay prevention.
+-- AMATELUS provides cryptographic proof generation and verification only.
 
 /-- Zero-Knowledge Proof の基本構造
 
@@ -40,16 +40,10 @@ structure ZKProofCore where
     Verifierが自身の正当性を証明するためのZKP。
     "私（verifierDID）は、信頼できるトラストアンカーから
     発行されたVerifierVCを保持している"ことを証明。
-
-    **双方向ナンス:**
-    challengeNonceは実際には双方のナンスの組み合わせを含む。
-    AMATELUSでは、HolderとVerifierの双方がナンスを生成し、
-    どちらか一方のWalletにバグがあっても保護される設計。
 -/
 structure VerifierAuthZKPCore where
   core : ZKProofCore
   verifierDID : UnknownDID           -- 証明者（Verifier）のDID
-  challengeNonce : Nonce      -- 双方向チャレンジnonce: H(nonce_holder || nonce_verifier)
   credentialType : String     -- 証明対象のVC種類（"VerifierVC"など）
 
 /-- Holder資格証明用ZKPの基本構造
@@ -61,21 +55,9 @@ structure VerifierAuthZKPCore where
     **ゼロ知識性の保証:**
     HolderのDIDは含まれない。ZKPの本質は「誰が」ではなく「何を」証明するか。
     Verifierは属性の正当性のみを検証し、Holderの身元は知らない。
-
-    **双方向ナンス:**
-    両方のナンスを明示的に格納することで、リプレイ攻撃耐性を実現。
-    - holderNonce: Holderが生成したnonce（相互認証時）
-    - verifierNonce: Verifierが生成したnonce
-    - どちらか一方が一意なら、ペア全体が一意（相互防衛）
-
-    この設計により、どちらか一方のWalletにバグがあっても、
-    もう一方のランダムネスにより保護される。
-    「他人のWalletバグから被害を受けない」設計原則を保証。
 -/
 structure HolderCredentialZKPCore where
   core : ZKProofCore
-  holderNonce : Nonce         -- Holderが生成したnonce
-  verifierNonce : Nonce       -- Verifierが生成したnonce
   claimedAttributes : String  -- 証明する属性の記述
 
 /-- VerifierAuthZKPの型エイリアス（MutualAuthenticationで使用） -/

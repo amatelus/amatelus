@@ -25,9 +25,6 @@ import AMATELUS.Operations
 -- 通信レイヤー定義
 import AMATELUS.Network
 
--- リプレイ攻撃耐性の証明
-import AMATELUS.ReplayResistance
-
 -- 相互認証プロトコル（Verifier認証）
 import AMATELUS.MutualAuthentication
 

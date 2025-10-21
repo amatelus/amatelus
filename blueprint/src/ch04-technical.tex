@@ -114,44 +114,69 @@ ZKP proves ownership of both DIDs without revealing either to external parties.
 
 \section{Zero-Knowledge Proofs}
 
-\subsection{Dual Nonce Binding}
+\subsection{Security Guarantees}
 
-\begin{verbatim}
-ZKP := (pi, x, nonce_holder, nonce_verifier)
-where pi proves knowledge of w such that
-R(x, w, nonce_holder, nonce_verifier) = 1
-\end{verbatim}
+AMATELUS provides cryptographic proof generation and verification. Impersonation attacks are prevented
+through DIDComm's requirement for explicit public key transmission.
 
-\subsection{Nonce Generation and Binding}
+\begin{theorem}
+  \label{thm:didcomm-impersonation-prevention}
+  Impersonation attacks (attacker with different secret key) are cryptographically prevented through DIDComm.
 
-Both Holder and Verifier generate independent nonces ($\geq$128 bits):
+  \textbf{Mechanism:}
+  \begin{itemize}
+    \item Verifier receives ZKP along with sender's public key via DIDComm (\texttt{senderDoc})
+    \item ZKP must be cryptographically signed with secret key corresponding to this public key
+    \item If attacker uses different secret key, the signature verification fails
+    \item Attacker cannot reuse legitimate ZKP with different SK (cryptographically impossible)
+  \end{itemize}
 
-\begin{enumerate}
-  \item Verifier generates \texttt{nonce2} (challenge)
-  \item Verifier sends \texttt{nonce2} to Holder
-  \item Holder generates \texttt{nonce1} independently
-  \item Holder combines: \texttt{nonce\_combined = H(nonce1 || nonce2)}
-  \item ZKP bound to \texttt{nonce\_combined}
-  \item Holder returns (ZKP, nonce1) to Verifier
-  \item Verifier verifies both nonces cryptographically
-\end{enumerate}
+  \textbf{Security guarantee}: Impersonation attacks are prevented by DIDComm alone.
+  \lean{AMATELUS.Cryptographic}
+  \leanok
+\end{theorem}
 
-\subsection{Security Property: Mutual Defense}
+\begin{theorem}
+  \label{thm:secret-key-correspondence-certainty}
+  DIDComm establishes cryptographic certainty between ZKP and secret key correspondence.
 
-If either party generates unique nonces:
+  By requiring explicit transmission of DIDDocument (containing public key), the protocol ensures:
+  \begin{itemize}
+    \item Verifier definitively knows which public key corresponds to the ZKP
+    \item ZKP is bound to exactly one secret key (the corresponding private key)
+    \item Any ZKP signed with different secret key will fail verification
+  \end{itemize}
+
+  \textbf{Result}: Cryptographic correspondence is certain, making impersonation impossible.
+  \lean{AMATELUS.Cryptographic}
+  \leanok
+\end{theorem}
+
+\subsection{Replay Prevention (Application Layer Responsibility)}
+
+\textbf{Important}: Replay prevention (preventing legitimate users from reusing the same ZKP across multiple sessions)
+is NOT part of AMATELUS protocol. This is an application-layer responsibility.
+
+Services that require single-use ZKP semantics (e.g., one-time registrations, authorization grants) should:
+
 \begin{itemize}
-  \item Holder bug (fixed nonce1) $\Rightarrow$ Verifier's nonce2 provides protection
-  \item Verifier bug (fixed nonce2) $\Rightarrow$ Holder's nonce1 provides protection
-  \item Both unique $\Rightarrow$ Complete protection from replay
+  \item Implement nonce-based mechanisms in their application layer
+  \item Generate unique session nonces for each verification request
+  \item Record and verify nonce freshness (checking that the nonce has not been used before)
+  \item Maintain nonce history within their application database
 \end{itemize}
 
-Neither party depends solely on the other's implementation quality.
+Services where ZKP reuse is acceptable (e.g., age verification for each transaction) do not require
+nonce mechanisms.
+
+\textbf{Important}: AMATELUS does not specify or enforce nonce handling. This is entirely
+the responsibility of the application implementing the protocol.
 
 \subsection{Computational Efficiency}
 
 \begin{itemize}
   \item \textbf{Offline precomputation}: Heavy circuit evaluation (minutes to hours)
-  \item \textbf{Real-time nonce binding}: Light operations only (milliseconds to hundreds of milliseconds)
+  \item \textbf{Real-time verification}: Light operations only (milliseconds to hundreds of milliseconds)
   \item \textbf{UX compatibility}: User interaction completes within tolerance (3 seconds)
 \end{itemize}
 

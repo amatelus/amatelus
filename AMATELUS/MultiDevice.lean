@@ -657,8 +657,6 @@ def generateZKPFromTransferredClaim
         proofPurpose := "クレーム個別転送による資格証明",
         created := ⟨tc.transferredAt⟩
       },
-      holderNonce := ⟨[]⟩,  -- TODO: 実際のnonce
-      verifierNonce := ⟨[]⟩,  -- TODO: 実際のnonce
       claimedAttributes := ""  -- 簡略化のため空文字列
     }
     UnknownZKP.valid ⟨Sum.inr core⟩
@@ -671,8 +669,6 @@ def generateZKPFromTransferredClaim
         proofPurpose := "クレーム個別転送による資格証明",
         created := ⟨tc.transferredAt⟩
       },
-      holderNonce := ⟨[]⟩,
-      verifierNonce := ⟨[]⟩,
       claimedAttributes := ""  -- 簡略化のため空文字列
     }
     UnknownZKP.invalid ⟨Sum.inr core, "入力の整合性検証失敗"⟩
@@ -797,8 +793,6 @@ theorem valid_inputs_generate_valid_zkp :
       proofPurpose := "クレーム個別転送による資格証明",
       created := ⟨vtc.transferredAt⟩
     },
-    holderNonce := ⟨[]⟩,
-    verifierNonce := ⟨[]⟩,
     claimedAttributes := ""
   }⟩, ?_⟩
   rfl
@@ -851,8 +845,6 @@ theorem inconsistent_inputs_generate_invalid_zkp :
         proofPurpose := "クレーム個別転送による資格証明",
         created := ⟨vtc.transferredAt⟩
       },
-      holderNonce := ⟨[]⟩,
-      verifierNonce := ⟨[]⟩,
       claimedAttributes := ""
     }, "入力の整合性検証失敗"⟩, ?_⟩
     rfl

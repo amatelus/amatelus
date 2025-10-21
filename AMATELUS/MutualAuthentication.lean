@@ -102,25 +102,28 @@ AMATELUS プロトコル v2では、すべての通信をDIDCommに統一しま�
 
 ## プロトコルフロー
 
-### 必須（DIDComm）
+### 必須（DIDComm + ZKP検証）
 
 1. Verifierがクレーム情報を送信
 2. Holderが全クレームの署名者のトラストアンカー検証
 3. 信頼できない署名者がいればフロー終了
 4. 信頼できればHolderに検証者情報を表示し、人間の判断を待つ
-5. 許可されたらZKP送信（de-linkage情報含む、DIDCommで秘密鍵対応が確定）
+5. 許可されたらZKP送信（de-linkage情報含む）
+6. DIDCommにより秘密鍵対応が確定的に知られるため、なりすまし攻撃は防止される
 
-### オプショナル（ナンス - サービス実装時）
+### オプショナル（Nonce - アプリケーション層の実装時）
 
-Verifierがリプレイ攻撃（本人による再利用）を防ぐ場合：
-- Verifierがナンス2を送信
-- Holderがナンス1を生成してZKPに含める
-- Verifierがナンスの一意性を確認
+Verifierがリプレイ攻撃（本人による不正な再利用）を防ぐ場合は、アプリケーション層で実装：
+- Verifierが各セッションで一意のnonceを生成
+- Holderがnonceをアプリケーション層で処理
+- Verifierがnonceの一意性を確認
 
 **採択例:**
-- 会員登録初回: ナンス必須（登録重複防止）
-- 年齢確認: ナンス不要（一度限り）
-- ログイン: ナンス不要（毎回新しい通信用DIDで検証）
+- 会員登録初回: Nonce推奨（登録重複防止はアプリケーション実装）
+- 年齢確認: Nonce不要（一度限りの検証）
+- ログイン: Nonce不要（毎回新しい通信用DIDで検証）
+
+**重要**: Nonce処理はAMATELUSプロトコル層では規定されず、各アプリケーション実装の責任
 
 -/
 
@@ -150,7 +153,7 @@ structure VerifierClaim where
 
 /-- Verifierの初期メッセージ
 
-    Phase 1: Verifierがナンス2、クレーム情報、および要求する属性スキーマを送信
+    Phase 1: Verifierがクレーム情報および要求する属性スキーマを送信
 
     **requestedAttributes について:**
     - Verifierが Holder から欲しい公開情報を JSONSchemaSubset で指定（必須）
@@ -164,7 +167,6 @@ structure VerifierClaim where
     - ECサイト: membershipLevel (会員ランク) + purchaseHistory (購入履歴)
 -/
 structure VerifierInitialMessage where
-  nonce2 : Nonce                          -- Verifierが生成したナンス
   presentedClaims : List VerifierClaim    -- 提示するクレーム情報のリスト
   verifierDID : UnknownDID                       -- Verifierの識別子
   requestedAttributes : Schema            -- Holderに要求する属性のJSONスキーマ（必須）
@@ -172,7 +174,9 @@ structure VerifierInitialMessage where
 
 /-- Holderの応答メッセージ
 
-    Phase 3: Holderがナンス1とZKP、および要求された属性データを送信（許可された場合）
+    Phase 2: HolderがZKPおよび要求された属性データを送信（許可された場合）
+
+    Note: Nonce処理はアプリケーション層の責任であり、このプロトコル層では規定されない
 
     **providedAttributes について:**
     - Verifierが requestedAttributes で要求した属性に対応するJSONデータ（必須）
@@ -185,8 +189,7 @@ structure VerifierInitialMessage where
     - これにより、「属性は提供できないがDIDだけは明かす」という危険な状態を防ぐ
 -/
 structure HolderResponse where
-  nonce1 : Nonce                        -- Holderが生成したナンス
-  holderZKP : UnknownZKP                -- ナンス1とナンス2を結合したZKP
+  holderZKP : UnknownZKP                -- Holder認証用ZKP
   providedAttributes : ValidJSONValue   -- 要求された属性データ（スキーマ検証済み、必須）
   timestamp : Timestamp
 
@@ -253,12 +256,10 @@ noncomputable def holderRespond
     : Option HolderResponse :=
   -- 基本検証
   if validateVerifierMessage msg holderWallet && humanApproval then
-    -- ナンス1を生成（実装では暗号学的ランダム）
-    let nonce1 : Nonce := ⟨[]⟩  -- プレースホルダ
-
-    -- 公開入力を構築：両方のナンスを含める
+    -- 公開入力を構築
+    -- Note: Nonce handling is application-layer responsibility
     let publicInput : PublicInput := {
-      data := msg.nonce2.value ++ nonce1.value
+      data := []
     }
 
     -- 証人を構築：Holderの秘密鍵
@@ -278,8 +279,6 @@ noncomputable def holderRespond
         proofPurpose := "credential-presentation"
         created := { unixTime := 0 }  -- プレースホルダ
       }
-      holderNonce := nonce1  -- Holderが生成したナンス
-      verifierNonce := msg.nonce2  -- Verifierが生成したナンス
       claimedAttributes := "Identity verification"
     }
 
@@ -297,7 +296,6 @@ noncomputable def holderRespond
     }
 
     some {
-      nonce1 := nonce1
       holderZKP := zkp
       providedAttributes := providedAttrs
       timestamp := { unixTime := 0 }  -- プレースホルダ
@@ -440,9 +438,8 @@ noncomputable def executeMutualAuth
 
     例1: 年齢制限サービス（酒類販売）
     ```
-    Verifier → Holder:
+    Verifier → Holder (DIDComm):
     {
-      nonce2: random(),
       presentedClaims: [
         {
           claimData: { data: "酒類販売許可", claimID: Some "liquor_license" },
@@ -462,61 +459,46 @@ noncomputable def executeMutualAuth
     }
     ```
 
-    例2: Webサービスログイン（DIDComm + チャレンジ署名）
+    例2: Webサービスログイン（DIDComm認証）
     ```
-    注: 本来はDIDCommで暗号化通信。ここでは簡略化した例を示す。
-
     **初回登録フロー:**
     Holder → Service (DIDComm):
     {
-      holderDID: "did:amt:holder_123",  // Holder側で生成したDID
-      serviceAccountID: "user_service_001",  // Service専用のワンタイム識別子
-      signedConsent: Signature,  // Holderの秘密鍵で署名
-      zkp: ZKP  // 属性証明（ageOver18など、必要に応じて）
-    }
-
-    Service検証:
-    1. DIDCommで受信 ← 通信路の認証完了
-    2. holderDIDの署名を検証
-    3. serviceAccountIDとholderDIDをバインド
-    4. トラストアンカーでHolder DIDを確認（オプション）
-
-    **ログインフロー（チャレンジ-レスポンス）:**
-    Verifier → Holder (DIDComm):
-    {
-      nonce2: random(),
-      challenge: "prove-account-ownership",
       presentedClaims: [
         {
-          claimData: { data: "SNSサービス", claimID: Some "social_service" },
-          issuerDID: "did:amt:sns_provider"
+          claimData: { data: "年齢確認", claimID: Some "age_verification" },
+          issuerDID: "did:amt:trusted_authority"
         }
       ],
-      verifierDID: "did:amt:sns_app",
+      verifierDID: "did:amt:service",
       requestedAttributes: {
         type: ["object"],
         properties: {
-          serviceAccountID: { type: ["string"] },  // Service固有の識別子（所有権証明ではない）
-          loginSignature: { type: ["string"] }  // チャレンジに対する署名（所有権証明）
+          ageOver18: { type: ["boolean"], const: true },
+          serviceAccountID: { type: ["string"] }  // Service固有の識別子（名寄せ回避）
         },
-        required: ["serviceAccountID", "loginSignature"]
+        required: ["ageOver18"]
       },
       timestamp: now()
     }
 
     Holder → Verifier (DIDComm):
     {
-      nonce1: random(),
-      serviceAccountID: "user_service_001",  // 初回登録時に生成した識別子
-      loginSignature: Sign(nonce2, holderPrivateKey),  // チャレンジ署名でアカウント所有権を証明
-      holderZKP: { /* nonce1 ∥ nonce2を結合したZKP */ }
+      holderZKP: ZKP,  // 属性証明（ageOver18など）
+      providedAttributes: {
+        ageOver18: true,
+        serviceAccountID: "user_service_001"
+      },
+      timestamp: now()
     }
 
     Service検証ポイント:
-    1. DIDCommで通信認証済み
-    2. loginSignatureを検証 → Holder秘密鍵の保持を確認
-    3. serviceAccountIDとholderDIDの紐付けを確認
-    4. ZKPで属性も検証（必要に応じて）
+    1. DIDCommで通信認証済み（秘密鍵対応が確定的）
+    2. ZKPで属性を検証
+    3. providedAttributesがスキーマに適合か確認
+    4. (オプション) 本人による不正な再利用を防ぎたい場合、アプリケーション層でnonce管理を実装
+
+    **重要**: Nonceの生成・管理はアプリケーション層の責任
     ```
 
     **Phase 2: Holderの検証プロセス**
@@ -537,22 +519,19 @@ noncomputable def executeMutualAuth
        - Holderは自分のVCから該当する属性を抽出
        - スキーマ検証を行い、ValidJSONValueとして構築
 
-    **Phase 3: Holderの応答**
+    **Phase 2: Holderの応答**
 
     例1: 年齢制限サービスへの応答
     ```
-    Holder → Verifier:
+    Holder → Verifier (DIDComm):
     {
-      nonce1: random(),
       holderZKP: {
         core: {
           proof: π,
-          publicInput: nonce2 || nonce1,
+          publicInput: <claimsData>,
           proofPurpose: "credential-presentation",
           created: now()
         },
-        holderNonce: nonce1,
-        verifierNonce: nonce2,
         claimedAttributes: "Age verification for liquor purchase"
       },
       providedAttributes: {  // 必須：スキーマ検証済み
@@ -564,24 +543,21 @@ noncomputable def executeMutualAuth
       },
       timestamp: now()
     }
+
+    注: Nonce処理が必要な場合、アプリケーション層で実装
     ```
 
-    例2: Webサービスログインへの応答（DIDComm + チャレンジ署名）
+    例2: Webサービスログインへの応答
     ```
     Holder → Verifier (DIDComm):
     {
-      nonce1: random(),
-      serviceAccountID: "user_sns_001",  // Service専用の識別子
-      loginSignature: Sign(nonce2, holderPrivateKey),  // チャレンジ署名
       holderZKP: {
         core: {
           proof: π,
-          publicInput: nonce2 || nonce1,
+          publicInput: <claimsData>,
           proofPurpose: "credential-presentation",
           created: now()
         },
-        holderNonce: nonce1,
-        verifierNonce: nonce2,
         claimedAttributes: "Account ownership proof for SNS login"
       },
       providedAttributes: {  // 必須：スキーマ検証済み
@@ -595,12 +571,10 @@ noncomputable def executeMutualAuth
     }
 
     Service検証:
-    1. DIDCommで受信認証済み
-    2. loginSignatureを秘密鍵で検証
-       - Sign検証成功 → Holder秘密鍵の保持を確認
-       - リプレイ攻撃防止: nonce2が使用済みでないか確認
+    1. DIDCommで受信認証済み（秘密鍵対応が確定的）
+    2. ZKPで属性を検証
     3. serviceAccountIDとHolder DIDの紐付けを確認
-    4. ZKPを検証（属性証明が必要な場合）
+    4. (オプション) アプリケーション層でnonce機構を実装している場合、nonce一意性を確認
     ```
 
     **重要:**
@@ -609,12 +583,13 @@ noncomputable def executeMutualAuth
     - loginSignatureでチャレンジ署名により初めてアカウント所有権が証明される
 
     **セキュリティ保証:**
-    - DIDComm認証: 通信路の認証・暗号化
+    - DIDComm認証: 通信路の認証・暗号化、秘密鍵対応の確定性
+    - なりすまし攻撃防止: DIDCommによる秘密鍵対応確定でなりすまし攻撃を完全防止
     - チャレンジ署名: Holderの秘密鍵保持を検証、アカウント所有権を証明
     - トラストアンカー検証: Wallet内の辞書で検証
     - 人間中心: 最終判断はHolderが行う
     - 偽警官対策: 信頼できない発行者のクレームは拒否
-    - リプレイ攻撃対策: 両方のナンスを結合してZKP生成 + nonce2の使用済み確認
+    - リプレイ攻撃対策: アプリケーション層でnonce機構を実装（プロトコル層では規定なし）
     - スキーマ検証: 要求された属性データはJSONSchemaで検証済み（必須）
     - 選択的開示: HolderはVerifierが要求した属性のみを提供
     - 名寄せ回避: DIDを平文で送信せず、Service固有の識別子を使用
@@ -623,7 +598,7 @@ noncomputable def executeMutualAuth
 -/
 def mutualAuthenticationRequirements : String :=
   "Mutual Authentication Protocol:
-   Phase 1: Verifier sends nonce2, presented claims with issuer DIDs,
+   Phase 1: Verifier sends presented claims with issuer DIDs,
     and requestedAttributes (JSON Schema, required)
    Phase 2: Holder validates all claim issuers against TrustAnchorDict
            If any issuer is untrusted, protocol terminates
@@ -631,16 +606,18 @@ def mutualAuthenticationRequirements : String :=
               and waits for human approval
            If rejected, protocol terminates
            If approved, extract requested attributes from VCs, validate against schema,
-              generate nonce1 and ZKP
+              generate ZKP (Nonce handling is application-layer responsibility)
            If schema validation fails or attributes unavailable, protocol terminates
-   Phase 3: Holder sends nonce1, ZKP (combining nonce1 and nonce2),
-     and providedAttributes (ValidJSONValue, required)
+   Phase 3: Holder sends ZKP and providedAttributes (ValidJSONValue, required)
 
    Security guarantees:
+   - DIDComm authentication: Sender authentication via cryptographic verification
+   - Impersonation attack prevention: Secret key correspondence certainty via DIDComm
    - Trust anchor validation: Dictionary lookup in Wallet
    - Human-centric: Final decision by Holder
    - Fake verifier protection: Untrusted issuer claims rejected
-   - Replay attack protection: Both nonces combined in ZKP
+   - Replay attack protection (app layer):
+     Applications should implement nonce-based mechanisms if needed
    - Schema validation: Provided attributes validated against JSON Schema (required)
    - Selective disclosure: Holder provides only requested attributes
    - Privacy protection: DID not sent in plaintext; service-specific identifiers used instead

@@ -50,7 +50,6 @@ structure ZKPMaterial where
   precomputedProofs : List PrecomputedZKP
   credential : UnknownVC
   statement : PublicInput
-  nonce : Nonce
   secretKey : SecretKey
 
 /-- ZKPMaterialから証人（Witness）を抽出
@@ -100,8 +99,6 @@ noncomputable def proofToZKP (proof : Proof) (material : ZKPMaterial) : UnknownZ
       proofPurpose := "credential-presentation"
       created := { unixTime := 0 }  -- タイムスタンプは実装依存
     }
-    holderNonce := ⟨[]⟩  -- 単方向プロトコル用（プレースホルダ）
-    verifierNonce := material.nonce  -- Verifierが生成したnonce
     claimedAttributes := "ZKP-based credential presentation"
   }
   UnknownZKP.valid {
@@ -165,18 +162,17 @@ theorem universalZKPOracle_isValid :
     辞書からのルックアップ操作として定義。
     これにより、形式的な意味が明確になる。
 -/
-noncomputable def combinePrecomputedProofWithNonce
+noncomputable def combinePrecomputedProofWithCredential
     (precomputedProofs : List PrecomputedZKP)
     (credential : UnknownVC)
     (statement : PublicInput)
-    (nonce : Nonce)
     (secretKey : SecretKey) : UnknownZKP :=
   -- 材料を構造化
+  -- Note: Nonce handling is application-layer responsibility
   let material : ZKPMaterial := {
     precomputedProofs := precomputedProofs
     credential := credential
     statement := statement
-    nonce := nonce
     secretKey := secretKey
   }
   -- 辞書から対応するZKPを取り出す
@@ -192,15 +188,14 @@ noncomputable def presentCredentialAsZKP
     (vc : UnknownVC)
     (holderIdentity : Identity)
     (statement : PublicInput)
-    (nonce : Nonce)
     (_h_has_identity : holderIdentity ∈ wallet.identities) : UnknownZKP :=
   -- Wallet内の指定されたIdentityの秘密鍵を使ってZKP生成
-  -- 事前計算されたProofをnonceと結合
-  combinePrecomputedProofWithNonce
+  -- 事前計算されたProofとCredentialを結合
+  -- Note: Nonce handling is application-layer responsibility
+  combinePrecomputedProofWithCredential
     wallet.precomputedProofs
     vc
     statement
-    nonce
     holderIdentity.secretKey
 
 end Holder

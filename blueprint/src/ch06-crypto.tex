@@ -9,7 +9,6 @@
     \item \textbf{Collision-resistant hash}: SHA3-512 provides 128-bit security against quantum adversaries
     \item \textbf{Unforgeable signatures}: Dilithium2 provides 128-bit security against quantum adversaries
     \item \textbf{ZKP soundness}: Standard zero-knowledge properties (completeness, soundness, zero-knowledge)
-    \item \textbf{Independent nonce generation}: Cryptographically random nonces with sufficient entropy
   \end{itemize}
   \uses{def:amatelus}
   \lean{AMATELUS.Cryptographic}
@@ -33,16 +32,31 @@
 
 \subsection{Replay Attack (Same ZKP, Same User)}
 
-\begin{theorem}
-  \label{thm:replay-resistance}
-  Replay attacks are prevented by dual nonce binding.
+\begin{proposition}
+  \label{prop:replay-application-layer}
+  Replay attack prevention (preventing legitimate users from reusing the same ZKP) is NOT
+  a responsibility of AMATELUS protocol. This is an application-layer responsibility.
 
-  Each ZKP corresponds to a unique nonce pair. Even if a legitimate user's ZKP is
-  reused in a new session, the nonces will differ, preventing the attack.
+  \textbf{Important distinction}:
+  \begin{itemize}
+    \item \textbf{Impersonation attacks} (attacker with different secret key):
+      PREVENTED by AMATELUS through DIDComm
+    \item \textbf{Replay attacks} (legitimate user reusing same ZKP):
+      NOT handled by AMATELUS. Applications requiring single-use semantics must implement nonce mechanisms.
+  \end{itemize}
+
+  Applications that require ZKP single-use guarantees should implement nonce handling at the application layer:
+  \begin{itemize}
+    \item Generate unique session nonces for each verification
+    \item Record and verify nonce freshness (checking that the nonce has not been used before)
+    \item Maintain nonce history in application database
+  \end{itemize}
+
+  Applications where ZKP reuse is acceptable (e.g., age verification, permission checks, one-time access grants)
+  do not require additional replay prevention mechanisms.
   \uses{def:crypto-assumptions}
   \lean{AMATELUS.Cryptographic}
-  \leanok
-\end{theorem}
+\end{proposition}
 
 \subsection{Man-in-the-Middle Attack}
 

@@ -297,8 +297,6 @@ structure ZKPSecretInputWithRevocation where
     - merkleRoot: 最新のMerkle Root（公開、revocationEnabled = true の場合のみ）
     - merkleRootVersion: バージョン番号（公開、revocationEnabled = true の場合のみ）
     - publicAttributes: 公開する属性（選択的開示）
-    - verifierNonce: Verifierが生成したnonce
-    - holderNonce: Holderが生成したnonce
 
     **重要な設計判断:**
     1. validUntilは公開入力に含めない。
@@ -320,10 +318,6 @@ structure ZKPPublicInputWithRevocation where
   merkleRootVersion : Option MerkleVersion
   /-- 公開する属性 -/
   publicAttributes : List (String × String)
-  /-- Verifierのnonce -/
-  verifierNonce : Nonce
-  /-- Holderのnonce -/
-  holderNonce : Nonce
   deriving Repr
 
 /-- ZKP生成関数（失効確認付き、定義として実装）
@@ -378,8 +372,6 @@ def generateZKPWithRevocation
               proofPurpose := "失効確認付き資格証明",
               created := ⟨0⟩
             },
-            holderNonce := publicInputs.holderNonce,
-            verifierNonce := publicInputs.verifierNonce,
             claimedAttributes := ""
           }
           UnknownZKP.valid ⟨Sum.inr core⟩
@@ -392,8 +384,6 @@ def generateZKPWithRevocation
               proofPurpose := "失効確認付き資格証明",
               created := ⟨0⟩
             },
-            holderNonce := publicInputs.holderNonce,
-            verifierNonce := publicInputs.verifierNonce,
             claimedAttributes := ""
           }
           UnknownZKP.invalid ⟨Sum.inr core, "Merkle包含証明の検証失敗（失効済み）"⟩
@@ -406,8 +396,6 @@ def generateZKPWithRevocation
             proofPurpose := "失効確認付き資格証明",
             created := ⟨0⟩
           },
-          holderNonce := publicInputs.holderNonce,
-          verifierNonce := publicInputs.verifierNonce,
           claimedAttributes := ""
         }
         UnknownZKP.invalid ⟨Sum.inr core, "Merkle証明またはMerkle Rootが存在しない"⟩
@@ -422,8 +410,6 @@ def generateZKPWithRevocation
           proofPurpose := "失効確認なし資格証明",
           created := ⟨0⟩
         },
-        holderNonce := publicInputs.holderNonce,
-        verifierNonce := publicInputs.verifierNonce,
         claimedAttributes := ""
       }
       UnknownZKP.valid ⟨Sum.inr core⟩
@@ -436,8 +422,6 @@ def generateZKPWithRevocation
           proofPurpose := "失効確認なし資格証明",
           created := ⟨0⟩
         },
-        holderNonce := publicInputs.holderNonce,
-        verifierNonce := publicInputs.verifierNonce,
         claimedAttributes := ""
       }
       UnknownZKP.invalid ⟨Sum.inr core, "revocationEnabledフラグ不一致"⟩
@@ -520,8 +504,7 @@ def verifyZKPWithRevocation
     (merkleRootUsedByHolder : MerkleRevocationList)
     (latestMerkleRoot : MerkleRevocationList)
     (issuerPublicKey : PublicKey)
-    (publicInputs : ZKPPublicInputWithRevocation)
-    (verifierSentNonce : Nonce)
+    (_publicInputs : ZKPPublicInputWithRevocation)
     (currentTime : Timestamp)
     (relation : Relation) : Bool :=
   -- 1. Merkle Root検証（Verifier側）
@@ -536,11 +519,10 @@ def verifyZKPWithRevocation
   let zkpValid :=
     zkp.verify relation
 
-  -- 3. ナンス検証（リプレイ攻撃防止）
-  let nonceMatches :=
-    publicInputs.verifierNonce == verifierSentNonce
+  -- Note: Nonce verification (replay prevention) is handled at the application layer,
+  -- not at the AMATELUS protocol layer.
 
-  merkleRootValid && zkpValid && nonceMatches
+  merkleRootValid && zkpValid
 
 -- ## Section 6: 定理と証明
 
@@ -718,13 +700,12 @@ theorem expired_merkle_root_rejected :
     (mrl : MerkleRevocationList)
     (issuerPublicKey : PublicKey)
     (publicInputs : ZKPPublicInputWithRevocation)
-    (verifierSentNonce : Nonce)
     (currentTime : Timestamp)
     (relation : Relation),
   mrl.isExpired currentTime = true →
   verifyZKPWithRevocation zkp mrl mrl issuerPublicKey publicInputs
-    verifierSentNonce currentTime relation = false := by
-  intro zkp mrl issuerPublicKey publicInputs verifierSentNonce currentTime relation h_expired
+    currentTime relation = false := by
+  intro zkp mrl issuerPublicKey publicInputs currentTime relation h_expired
   -- verifyZKPWithRevocationの定義を展開
   unfold verifyZKPWithRevocation
   -- let式を展開してverifyMerkleRootAtVerifierを評価可能にする
@@ -733,7 +714,7 @@ theorem expired_merkle_root_rejected :
     simp [h_expired]
   ]
   -- merkleRootValid = false
-  -- → (false && zkpValid && nonceMatches) = false
+  -- → (false && zkpValid) = false
   rfl
 
 /-- Theorem: バージョンラグ超過でZKP検証失敗
@@ -753,14 +734,13 @@ theorem version_lag_exceeded_rejected :
     (latestMerkleRoot : MerkleRevocationList)
     (issuerPublicKey : PublicKey)
     (publicInputs : ZKPPublicInputWithRevocation)
-    (verifierSentNonce : Nonce)
     (currentTime : Timestamp)
     (relation : Relation),
   latestMerkleRoot.version - merkleRootUsedByHolder.version > MAX_VERSION_LAG →
   verifyZKPWithRevocation zkp merkleRootUsedByHolder latestMerkleRoot
-    issuerPublicKey publicInputs verifierSentNonce currentTime relation = false := by
+    issuerPublicKey publicInputs currentTime relation = false := by
   intro zkp merkleRootUsedByHolder latestMerkleRoot issuerPublicKey publicInputs
-        verifierSentNonce currentTime relation h_version_lag
+        currentTime relation h_version_lag
   -- verifyZKPWithRevocationの定義を展開
   unfold verifyZKPWithRevocation
   -- verifyMerkleRootAtVerifierの定義を展開

@@ -11,7 +11,6 @@ import AMATELUS.ZKP
 import AMATELUS.SecurityAssumptions
 import AMATELUS.Cryptographic
 import AMATELUS.TrustChain
-import AMATELUS.ReplayResistance
 import AMATELUS.Privacy
 import AMATELUS.Audit
 import AMATELUS.Network

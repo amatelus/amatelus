@@ -97,21 +97,14 @@ usemathjax: true
 
     <div class="layer">
       <div class="layer-icon">🏗️</div>
-      <h3>Application Layer (Your Responsibility)</h3>
+      <h3>Application Layer</h3>
       <p><strong>What Your Application Implements:</strong></p>
       <ul>
-        <li><strong>Replay Attack Prevention (Optional):</strong> If your application requires preventing legitimate users from reusing the same ZKP across multiple sessions, implement nonce-based mechanisms in your application. AMATELUS protocol doesn't enforce this.</li>
         <li><strong>Session Management:</strong> Create new communication DIDs for each session to maintain privacy.</li>
         <li><strong>Audit Logging:</strong> Record proof metadata (timestamp, which credential, to whom) as needed for compliance or fraud detection.</li>
         <li><strong>Service-Specific Policies:</strong> Implement authorization, rate limiting, fraud detection specific to your service.</li>
       </ul>
     </div>
-  </div>
-
-  <div class="layer-example">
-    <h4>Example: Age Verification Service</h4>
-    <p><strong>Protocol Layer (AMATELUS handles):</strong> User proves "age >= 18" with a ZKP signed by their private key, transmitted via DIDComm. No impersonation possible.</p>
-    <p><strong>Application Layer (Your Service):</strong> Decide: Does a user need to prove age only once per session, or can they reuse the same proof multiple times? Implement nonce checking if reuse is a concern.</p>
   </div>
 </section>
 
@@ -332,22 +325,22 @@ usemathjax: true
   <p>It's important to understand the protocol's scope and limitations:</p>
 
   <div class="limitation">
-    <h3>❌ Directory Service</h3>
+    <h3>Directory Service</h3>
     <p>There's no central registry to "look up" someone's identity. This is intentional—it protects privacy. DIDs are only known to those the owner shares them with.</p>
   </div>
 
   <div class="limitation">
-    <h3>❌ Message Transport Layer</h3>
+    <h3>Message Transport Layer</h3>
     <p>AMATELUS doesn't handle how messages get from your wallet to a service provider. That's the responsibility of each service. (Usually HTTPS/TLS)</p>
   </div>
 
   <div class="limitation">
-    <h3>❌ Authorization Decisions</h3>
+    <h3>Authorization Decisions</h3>
     <p>After identity is verified, whether to grant access or services is entirely up to the service provider. AMATELUS only handles identity verification.</p>
   </div>
 
   <div class="limitation">
-    <h3>❌ Endpoint Management</h3>
+    <h3>Endpoint Management</h3>
     <p>How to contact a service provider (email, phone, API endpoint) is not part of AMATELUS. Each service manages its own contact methods.</p>
   </div>
 </section>
@@ -874,24 +867,6 @@ usemathjax: true
   }
 
   .layer li {
-    margin: 12px 0;
-    color: #666;
-    line-height: 1.6;
-  }
-
-  .layer-example {
-    background: white;
-    padding: 25px;
-    border-radius: 6px;
-    border-left: 4px solid #0066cc;
-  }
-
-  .layer-example h4 {
-    margin: 0 0 15px 0;
-    color: #333;
-  }
-
-  .layer-example p {
     margin: 12px 0;
     color: #666;
     line-height: 1.6;
